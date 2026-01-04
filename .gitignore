@@ -1,0 +1,16 @@
+.env
+*.png
+_models
+_pycache_
+_models_opt
+_optuna
+_train_data
+metrics.csv
+*.pyc
+*.tsv
+*.json
+*.csv
+catboost_info
+*.keras
+*.joblib
+*.npz

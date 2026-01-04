@@ -1,0 +1,566 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Trade Report Viewer</title>
+  <style>
+    :root{
+      --bg:#0b0f14;
+      --bg2:#0f1720;
+      --panel:#0e141c;
+      --line:#1f2a37;
+      --text:#d6dde7;
+      --muted:#8aa0b7;
+      --btn:#121a24;
+      --btn2:#162132;
+      --good:#1f8f5f;
+      --bad:#8f1f3b;
+      --accent:#2a6fdb;
+    }
+
+    *{ box-sizing:border-box; }
+    html, body{
+      margin:0;
+      height:100%;
+      overflow:hidden;
+      background:var(--bg);
+      color:var(--text);
+      font-family:system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial, sans-serif;
+    }
+
+    #root{
+      height:100%;
+      display:flex;
+      flex-direction:column;
+      min-height:0;
+    }
+
+    #topbar{
+      flex:0 0 auto;
+      display:flex;
+      align-items:center;
+      gap:8px;
+      padding:10px 10px;
+      background:linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.0));
+      border-bottom:1px solid var(--line);
+    }
+
+    .btn{
+      background:var(--btn);
+      border:1px solid rgba(255,255,255,0.08);
+      color:var(--text);
+      padding:6px 10px;
+      border-radius:10px;
+      cursor:pointer;
+      font-size:13px;
+      line-height:1;
+      user-select:none;
+    }
+    .btn:hover{ background:var(--btn2); }
+    .btn.good{ border-color:rgba(31,143,95,0.45); }
+    .btn.bad { border-color:rgba(143,31,59,0.45); }
+    .btn:disabled{ opacity:0.45; cursor:default; }
+
+    #topbar .spacer{ flex:1 1 auto; }
+
+    #zoomLabel{
+      font-variant-numeric:tabular-nums;
+      color:var(--muted);
+      font-size:13px;
+      padding:0 6px;
+      min-width:74px;
+      text-align:center;
+    }
+
+    #statusRight{
+      font-size:12px;
+      color:var(--muted);
+      white-space:nowrap;
+      font-variant-numeric:tabular-nums;
+    }
+
+    #content{
+      flex:1 1 auto;
+      display:flex;
+      min-height:0;
+    }
+
+    #sidebar{
+      width:320px;
+      min-width:260px;
+      max-width:460px;
+      border-right:1px solid var(--line);
+      background:var(--panel);
+      display:flex;
+      flex-direction:column;
+      min-height:0;
+    }
+
+    #filterWrap{
+      padding:10px;
+      border-bottom:1px solid var(--line);
+      background:rgba(255,255,255,0.02);
+    }
+    #filter{
+      width:100%;
+      padding:8px 10px;
+      border-radius:10px;
+      border:1px solid rgba(255,255,255,0.10);
+      background:var(--bg2);
+      color:var(--text);
+      outline:none;
+      font-size:13px;
+    }
+    #hint{
+      margin-top:8px;
+      font-size:11px;
+      color:var(--muted);
+      line-height:1.35;
+      user-select:none;
+    }
+
+    #thumbs{
+      flex:1 1 auto;
+      min-height:0;
+      overflow-y:auto;
+      overflow-x:hidden;
+      padding:10px;
+      overscroll-behavior:contain;
+      scrollbar-gutter:stable;
+    }
+
+    .thumb{
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      padding:8px;
+      margin-bottom:10px;
+      border-radius:12px;
+      border:1px solid rgba(255,255,255,0.08);
+      background:rgba(255,255,255,0.02);
+      cursor:pointer;
+      user-select:none;
+    }
+    .thumb:hover{ background:rgba(255,255,255,0.04); }
+    .thumb.active{
+      border-color:rgba(42,111,219,0.70);
+      box-shadow:0 0 0 1px rgba(42,111,219,0.20) inset;
+    }
+
+    .thumb img{
+      width:100%;
+      height:110px;
+      object-fit:contain;
+      background:#0a0f15;
+      border-radius:10px;
+      border:1px solid rgba(255,255,255,0.08);
+      display:block;
+    }
+    .thumb .name{
+      font-size:12px;
+      color:var(--text);
+      word-break:break-all;
+      line-height:1.2;
+    }
+
+    #viewer{
+      flex:1 1 auto;
+      min-height:0;
+      display:flex;
+      flex-direction:column;
+      background:radial-gradient(1200px 600px at 40% 35%, rgba(255,255,255,0.04), rgba(255,255,255,0.0) 60%);
+    }
+
+    #stage{
+      flex:1 1 auto;
+      min-height:0;
+      position:relative;
+      overflow:hidden;
+      background:transparent;
+      cursor:grab;
+    }
+    #stage.dragging{ cursor:grabbing; }
+
+    #img{
+      position:absolute;
+      left:50%;
+      top:50%;
+      transform-origin:center center;
+      user-select:none;
+      -webkit-user-drag:none;
+      max-width:none;
+      max-height:none;
+    }
+
+    #toast{
+      position:absolute;
+      right:14px;
+      bottom:14px;
+      background:rgba(0,0,0,0.55);
+      border:1px solid rgba(255,255,255,0.12);
+      padding:8px 10px;
+      border-radius:12px;
+      color:var(--text);
+      font-size:12px;
+      max-width:50%;
+      display:none;
+      z-index:50;
+      backdrop-filter: blur(6px);
+    }
+  </style>
+</head>
+
+<body>
+<div id="root">
+
+  <div id="topbar">
+    <button class="btn" id="btnPrev">◀ Prev</button>
+    <button class="btn" id="btnNext">Next ▶</button>
+    <button class="btn" id="btnFit">Fit</button>
+
+    <div id="zoomLabel">100%</div>
+
+    <button class="btn" id="btnZoomIn">Zoom +</button>
+    <button class="btn" id="btnZoomOut">Zoom −</button>
+    <button class="btn" id="btnRotate">Rotate</button>
+    <button class="btn" id="btnDownload">Download</button>
+    <button class="btn good" id="btnTelegram">Send to Telegram</button>
+    <button class="btn bad" id="btnStop">Stop viewer</button>
+
+    <div class="spacer"></div>
+    <div id="statusRight">—</div>
+  </div>
+
+  <div id="content">
+    <div id="sidebar">
+      <div id="filterWrap">
+        <input id="filter" placeholder="Filter by filename..." />
+        <div id="hint">
+          Keys: ←/→ navigate • +/− zoom • F fit • 1 reset zoom • R rotate • Space next • Wheel zoom • Drag to pan
+        </div>
+      </div>
+      <div id="thumbs"></div>
+    </div>
+
+    <div id="viewer">
+      <div id="stage">
+        <img id="img" alt="" />
+        <div id="toast"></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ВАЖНО: images.js ДОЛЖЕН быть загружен ДО основного JS -->
+<script src="images.js"
+        onerror="document.getElementById('statusRight').textContent='Failed to load images.js (check that it exists in _trade_report)';">
+</script>
+
+<script>
+(function(){
+  const $ = (id) => document.getElementById(id);
+
+  const btnPrev = $("btnPrev");
+  const btnNext = $("btnNext");
+  const btnFit  = $("btnFit");
+  const btnZoomIn = $("btnZoomIn");
+  const btnZoomOut= $("btnZoomOut");
+  const btnRotate = $("btnRotate");
+  const btnDownload = $("btnDownload");
+  const btnTelegram = $("btnTelegram");
+  const btnStop = $("btnStop");
+
+  const zoomLabel = $("zoomLabel");
+  const statusRight = $("statusRight");
+  const filter = $("filter");
+  const thumbs = $("thumbs");
+  const stage  = $("stage");
+  const img    = $("img");
+  const toast  = $("toast");
+
+  // Теперь images.js уже выполнен, window.REPORT_IMAGES доступен
+  let images = (window.REPORT_IMAGES || []).slice();
+  let filtered = images.slice();
+  let idx = 0;
+
+  let zoom = 1.0;
+  let rot = 0;
+  let panX = 0;
+  let panY = 0;
+  let fitMode = true;
+
+  let dragging = false;
+  let lastX = 0;
+  let lastY = 0;
+
+  function showToast(text, ms=1400){
+    toast.textContent = text;
+    toast.style.display = "block";
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(()=>{ toast.style.display="none"; }, ms);
+  }
+
+  function clampZoom(z){
+    if (!isFinite(z)) return 1.0;
+    if (z < 0.05) return 0.05;
+    if (z > 20.0) return 20.0;
+    return z;
+  }
+
+  function setTransform(){
+    const t = `translate(-50%, -50%) translate(${panX}px, ${panY}px) scale(${zoom}) rotate(${rot}deg)`;
+    img.style.transform = t;
+    zoomLabel.textContent = Math.round(zoom * 100) + "%";
+  }
+
+  function stageRect(){
+    return stage.getBoundingClientRect();
+  }
+
+  function fitToStage(){
+    const r = stageRect();
+    const w = img.naturalWidth || 1;
+    const h = img.naturalHeight || 1;
+
+    const rotNorm = ((rot % 360) + 360) % 360;
+    const swapped = (rotNorm === 90 || rotNorm === 270);
+    const iw = swapped ? h : w;
+    const ih = swapped ? w : h;
+
+    const scaleW = (r.width  - 24) / iw;
+    const scaleH = (r.height - 24) / ih;
+
+    zoom = clampZoom(Math.min(scaleW, scaleH));
+    panX = 0;
+    panY = 0;
+    fitMode = true;
+    setTransform();
+    showToast("Fit");
+  }
+
+  function resetView(){
+    zoom = 1.0;
+    rot = 0;
+    panX = 0;
+    panY = 0;
+    fitMode = false;
+    setTransform();
+    showToast("Reset");
+  }
+
+  function cssEscape(s){
+    if (window.CSS && CSS.escape) return CSS.escape(s);
+    return String(s).replace(/["\\]/g, "\\$&");
+  }
+
+  function setIndex(newIdx){
+    if (filtered.length === 0) return;
+    idx = ((newIdx % filtered.length) + filtered.length) % filtered.length;
+    const name = filtered[idx];
+
+    // ключевое: сброс pan, чтобы новая картинка не "появлялась ниже"
+    panX = 0;
+    panY = 0;
+
+    img.src = name;
+    statusRight.textContent = `${name} (${idx+1}/${filtered.length})`;
+
+    document.querySelectorAll(".thumb").forEach(el => el.classList.remove("active"));
+    const el = document.querySelector(`.thumb[data-name="${cssEscape(name)}"]`);
+    if (el){
+      el.classList.add("active");
+      el.scrollIntoView({ block: "nearest" });
+    }
+  }
+
+  function rebuildThumbs(){
+    thumbs.innerHTML = "";
+
+    if (filtered.length === 0){
+      statusRight.textContent = "No images (empty filter or REPORT_IMAGES empty)";
+      img.removeAttribute("src");
+      return;
+    }
+
+    for (const name of filtered){
+      const item = document.createElement("div");
+      item.className = "thumb";
+      item.dataset.name = name;
+
+      const im = document.createElement("img");
+      im.loading = "lazy";
+      im.src = name;
+
+      const nm = document.createElement("div");
+      nm.className = "name";
+      nm.textContent = name;
+
+      item.appendChild(im);
+      item.appendChild(nm);
+
+      item.addEventListener("click", () => {
+        const i = filtered.indexOf(name);
+        if (i >= 0) setIndex(i);
+      });
+
+      thumbs.appendChild(item);
+    }
+
+    setIndex(Math.min(idx, filtered.length - 1));
+  }
+
+  function applyFilter(){
+    const q = (filter.value || "").trim().toLowerCase();
+    if (!q){
+      filtered = images.slice();
+      idx = Math.min(idx, Math.max(0, filtered.length-1));
+      rebuildThumbs();
+      return;
+    }
+    filtered = images.filter(n => String(n).toLowerCase().includes(q));
+    idx = 0;
+    rebuildThumbs();
+  }
+
+  // Buttons
+  btnPrev.onclick = () => setIndex(idx - 1);
+  btnNext.onclick = () => setIndex(idx + 1);
+  btnFit.onclick  = () => fitToStage();
+
+  btnZoomIn.onclick = () => { zoom = clampZoom(zoom * 1.15); fitMode = false; setTransform(); };
+  btnZoomOut.onclick= () => { zoom = clampZoom(zoom / 1.15); fitMode = false; setTransform(); };
+
+  btnRotate.onclick = () => {
+    rot = (rot + 90) % 360;
+    panX = 0; panY = 0;
+    if (fitMode) fitToStage(); else setTransform();
+  };
+
+  btnDownload.onclick = () => {
+    if (!filtered.length) return;
+    const name = filtered[idx];
+    const a = document.createElement("a");
+    a.href = name;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+
+  btnTelegram.onclick = async () => {
+    if (!filtered.length) return;
+    const name = filtered[idx];
+    btnTelegram.disabled = true;
+    try{
+      const res = await fetch(`/api/send?file=${encodeURIComponent(name)}`, { method:"POST" });
+      const j = await res.json().catch(()=>({ok:false,error:"bad json"}));
+      if (j && j.ok) showToast("Sent to Telegram");
+      else showToast("Telegram error: " + (j && j.error ? j.error : "unknown"), 2200);
+    }catch(e){
+      showToast("Telegram request failed", 2200);
+    }finally{
+      btnTelegram.disabled = false;
+    }
+  };
+
+  btnStop.onclick = async () => {
+    btnStop.disabled = true;
+    try{
+      await fetch("/api/shutdown", { method:"POST" });
+      showToast("Server stopping…");
+    }catch(e){
+      showToast("Stop failed (close tab manually)", 2200);
+    }finally{
+      setTimeout(()=>{ btnStop.disabled = false; }, 800);
+    }
+  };
+
+  // Stage drag pan
+  stage.addEventListener("mousedown", (e) => {
+    if (!filtered.length) return;
+    dragging = true;
+    stage.classList.add("dragging");
+    lastX = e.clientX;
+    lastY = e.clientY;
+  });
+
+  window.addEventListener("mouseup", () => {
+    dragging = false;
+    stage.classList.remove("dragging");
+  });
+
+  window.addEventListener("mousemove", (e) => {
+    if (!dragging) return;
+    const dx = e.clientX - lastX;
+    const dy = e.clientY - lastY;
+    lastX = e.clientX;
+    lastY = e.clientY;
+    panX += dx;
+    panY += dy;
+    fitMode = false;
+    setTransform();
+  });
+
+  stage.addEventListener("wheel", (e) => {
+    if (!filtered.length) return;
+    e.preventDefault();
+    const dir = (e.deltaY > 0) ? -1 : 1;
+    const k = (dir > 0) ? 1.12 : (1/1.12);
+    zoom = clampZoom(zoom * k);
+    fitMode = false;
+    setTransform();
+  }, { passive:false });
+
+  // Keyboard
+  window.addEventListener("keydown", (e) => {
+    if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
+
+    if (e.key === "ArrowLeft") { setIndex(idx - 1); return; }
+    if (e.key === "ArrowRight"){ setIndex(idx + 1); return; }
+    if (e.key === " "){ e.preventDefault(); setIndex(idx + 1); return; }
+
+    if (e.key === "+" || e.key === "="){ zoom = clampZoom(zoom * 1.15); fitMode = false; setTransform(); return; }
+    if (e.key === "-" || e.key === "_"){ zoom = clampZoom(zoom / 1.15); fitMode = false; setTransform(); return; }
+
+    if (e.key === "f" || e.key === "F"){ fitToStage(); return; }
+    if (e.key === "r" || e.key === "R"){
+      rot = (rot + 90) % 360;
+      panX = 0; panY = 0;
+      if (fitMode) fitToStage(); else setTransform();
+      return;
+    }
+    if (e.key === "1"){ resetView(); return; }
+  });
+
+  filter.addEventListener("input", () => applyFilter());
+
+  img.addEventListener("load", () => {
+    if (fitMode) fitToStage();
+    else setTransform();
+  });
+
+  window.addEventListener("resize", () => {
+    if (fitMode && filtered.length) fitToStage();
+  });
+
+  function init(){
+    // диагностическое сообщение
+    if (!images || images.length === 0){
+      statusRight.textContent = "No images (REPORT_IMAGES empty or images.js missing)";
+      showToast("No REPORT_IMAGES found. Check images.js exists in _trade_report.", 2600);
+      return;
+    }
+    filtered = images.slice();
+    idx = 0;
+    rebuildThumbs();
+    fitMode = true;
+  }
+
+  init();
+})();
+</script>
+
+</body>
+</html>
