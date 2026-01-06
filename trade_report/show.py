@@ -940,67 +940,67 @@ def compute_trade_stats(trades: List[Dict[str, Any]]) -> Tuple[Dict[str, Any], p
 #########FUNCTIONS PLOT##################
 #========================================
 
-def _plot_distributions(
-    df: pd.DataFrame,
-    stats: Dict[str, Any],
-    show: bool,
-    save: bool,
-    save_dir: Optional[str],
-    dpi: int,
-) -> None:
-    # Подготовка таблиц
-    df_type = pd.DataFrame(stats["by_type_of_close"])
-    df_sig = pd.DataFrame(stats["by_signal"])
+# def _plot_distributions(
+#     df: pd.DataFrame,
+#     stats: Dict[str, Any],
+#     show: bool,
+#     save: bool,
+#     save_dir: Optional[str],
+#     dpi: int,
+# ) -> None:
+#     # Подготовка таблиц
+#     df_type = pd.DataFrame(stats["by_type_of_close"])
+#     df_sig = pd.DataFrame(stats["by_signal"])
 
-    # Фигура 2: 2x2 — количество и прибыль по типам закрытия и сигналам
-    fig, axs = plt.subplots(nrows=2, ncols=2, figsize=(12, 8))
-    (ax1, ax2), (ax3, ax4) = axs
+#     # Фигура 2: 2x2 — количество и прибыль по типам закрытия и сигналам
+#     fig, axs = plt.subplots(nrows=2, ncols=2, figsize=(12, 8))
+#     (ax1, ax2), (ax3, ax4) = axs
 
-    # 1) Количество по type_of_close (столбики)
-    if not df_type.empty:
-        ax1.bar(df_type["type_of_close"], df_type["count"])
-        ax1.set_title("Trades by type_of_close (count)")
-        ax1.set_ylabel("Count")
-        ax1.grid(True, axis="y", alpha=0.25)
-        for tick in ax1.get_xticklabels():
-            tick.set_rotation(20)
-    else:
-        ax1.text(0.5, 0.5, "No data", ha="center", va="center")
+#     # 1) Количество по type_of_close (столбики)
+#     if not df_type.empty:
+#         ax1.bar(df_type["type_of_close"], df_type["count"])
+#         ax1.set_title("Trades by type_of_close (count)")
+#         ax1.set_ylabel("Count")
+#         ax1.grid(True, axis="y", alpha=0.25)
+#         for tick in ax1.get_xticklabels():
+#             tick.set_rotation(20)
+#     else:
+#         ax1.text(0.5, 0.5, "No data", ha="center", va="center")
 
-    # 2) Прибыль по type_of_close (столбики total)
-    if not df_type.empty:
-        ax2.bar(df_type["type_of_close"], df_type["profit_total"])
-        ax2.set_title("Profit by type_of_close (total)")
-        ax2.set_ylabel("Profit")
-        ax2.grid(True, axis="y", alpha=0.25)
-        for tick in ax2.get_xticklabels():
-            tick.set_rotation(20)
-    else:
-        ax2.text(0.5, 0.5, "No data", ha="center", va="center")
+#     # 2) Прибыль по type_of_close (столбики total)
+#     if not df_type.empty:
+#         ax2.bar(df_type["type_of_close"], df_type["profit_total"])
+#         ax2.set_title("Profit by type_of_close (total)")
+#         ax2.set_ylabel("Profit")
+#         ax2.grid(True, axis="y", alpha=0.25)
+#         for tick in ax2.get_xticklabels():
+#             tick.set_rotation(20)
+#     else:
+#         ax2.text(0.5, 0.5, "No data", ha="center", va="center")
 
-    # 3) Доли по сигналам (круг)
-    if not df_sig.empty:
-        ax3.pie(
-            df_sig["count"],
-            labels=list(map(str, df_sig["signal"])),
-            autopct="%1.1f%%",
-            startangle=90,
-        )
-        ax3.set_title("Signals share (count)")
-    else:
-        ax3.text(0.5, 0.5, "No data", ha="center", va="center")
+#     # 3) Доли по сигналам (круг)
+#     if not df_sig.empty:
+#         ax3.pie(
+#             df_sig["count"],
+#             labels=list(map(str, df_sig["signal"])),
+#             autopct="%1.1f%%",
+#             startangle=90,
+#         )
+#         ax3.set_title("Signals share (count)")
+#     else:
+#         ax3.text(0.5, 0.5, "No data", ha="center", va="center")
 
-    # 4) Прибыль по сигналам (столбики)
-    if not df_sig.empty:
-        ax4.bar(list(map(str, df_sig["signal"])), df_sig["profit_total"])
-        ax4.set_title("Profit by signal (total)")
-        ax4.set_ylabel("Profit")
-        ax4.grid(True, axis="y", alpha=0.25)
-    else:
-        ax4.text(0.5, 0.5, "No data", ha="center", va="center")
+#     # 4) Прибыль по сигналам (столбики)
+#     if not df_sig.empty:
+#         ax4.bar(list(map(str, df_sig["signal"])), df_sig["profit_total"])
+#         ax4.set_title("Profit by signal (total)")
+#         ax4.set_ylabel("Profit")
+#         ax4.grid(True, axis="y", alpha=0.25)
+#     else:
+#         ax4.text(0.5, 0.5, "No data", ha="center", va="center")
 
-    plt.tight_layout()
-    _maybe_save_or_show(fig, "stats_overview.png", show, save, save_dir, dpi)
+#     plt.tight_layout()
+#     _maybe_save_or_show(fig, "stats_overview.png", show, save, save_dir, dpi)
 
 def _plot_equity(
     df: pd.DataFrame,
@@ -1178,51 +1178,277 @@ def _plot_equity(
 
     _maybe_save_or_show(fig, "equity.png", show, save, save_dir, dpi)
 
-
-def _plot_weekday_stats(
+def _plot_distributions(
+    df: pd.DataFrame,
     stats: Dict[str, Any],
     show: bool,
     save: bool,
     save_dir: Optional[str],
     dpi: int,
 ) -> None:
-    df_wd = pd.DataFrame(stats.get("by_weekday", []))
-    if df_wd.empty:
+    # Подготовка таблиц
+    df_type = pd.DataFrame(stats["by_type_of_close"])
+    df_sig = pd.DataFrame(stats["by_signal"])
+
+    # Фигура 2: 2x2 — количество и прибыль по типам закрытия и сигналам
+    fig, axs = plt.subplots(nrows=2, ncols=2, figsize=(12, 8))
+    (ax1, ax2), (ax3, ax4) = axs
+
+    # 1) Количество по type_of_close (столбики)
+    if not df_type.empty:
+        ax1.bar(df_type["type_of_close"], df_type["count"])
+        ax1.set_title("Trades by type_of_close (count)")
+        ax1.set_ylabel("Count")
+        ax1.grid(True, axis="y", alpha=0.25)
+        for tick in ax1.get_xticklabels():
+            tick.set_rotation(20)
+    else:
+        ax1.text(0.5, 0.5, "No data", ha="center", va="center")
+
+    # 2) Прибыль по type_of_close (столбики total)
+    if not df_type.empty:
+        ax2.bar(df_type["type_of_close"], df_type["profit_total"])
+        ax2.set_title("Profit by type_of_close (total)")
+        ax2.set_ylabel("Profit")
+        ax2.grid(True, axis="y", alpha=0.25)
+        for tick in ax2.get_xticklabels():
+            tick.set_rotation(20)
+    else:
+        ax2.text(0.5, 0.5, "No data", ha="center", va="center")
+
+    # 3) и 4) Сигналы:
+    # Если df_sig содержит колонку dow, то рисуем по дням недели
+    # и ДЕЛАЕМ по ДВА столбика на каждый день: signal=1 и signal=2.
+    # Иначе — поведение как раньше: pie по count и bar по profit_total по сигналам.
+    has_dow = (not df_sig.empty) and ("dow" in df_sig.columns)
+
+    if has_dow:
+        dow_order = [0, 1, 2, 3, 4, 5, 6]
+        dow_labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+        df_sig_loc = df_sig.copy()
+        df_sig_loc["dow"] = pd.to_numeric(df_sig_loc["dow"], errors="coerce")
+        df_sig_loc["signal"] = pd.to_numeric(df_sig_loc["signal"], errors="coerce")
+
+        # оставляем только сигналы 1 и 2
+        df_sig_loc = df_sig_loc[df_sig_loc["signal"].isin([1, 2])].copy()
+
+        # --- ax3: grouped bars by dow (count) ---
+        if (not df_sig_loc.empty) and ("count" in df_sig_loc.columns):
+            pv_cnt = (
+                df_sig_loc.pivot_table(index="dow", columns="signal", values="count", aggfunc="sum")
+                .reindex(dow_order)
+                .fillna(0.0)
+            )
+
+            x = list(range(len(dow_order)))
+            width = 0.38
+            x1 = [xi - width / 2.0 for xi in x]
+            x2 = [xi + width / 2.0 for xi in x]
+
+            y1 = pv_cnt[1].astype(float).tolist() if 1 in pv_cnt.columns else [0.0] * len(dow_order)
+            y2 = pv_cnt[2].astype(float).tolist() if 2 in pv_cnt.columns else [0.0] * len(dow_order)
+
+            ax3.bar(x1, y1, width=width, label="signal=1")
+            ax3.bar(x2, y2, width=width, label="signal=2")
+            ax3.set_title("Signals by day-of-week (count)")
+            ax3.set_ylabel("Count")
+            ax3.set_xticks(x)
+            ax3.set_xticklabels(dow_labels, rotation=0)
+            ax3.grid(True, axis="y", alpha=0.25)
+            ax3.legend(loc="best", fontsize=9)
+        else:
+            ax3.text(0.5, 0.5, "No data", ha="center", va="center")
+
+        # --- ax4: grouped bars by dow (profit_total) ---
+        if (not df_sig_loc.empty) and ("profit_total" in df_sig_loc.columns):
+            pv_p = (
+                df_sig_loc.pivot_table(index="dow", columns="signal", values="profit_total", aggfunc="sum")
+                .reindex(dow_order)
+                .fillna(0.0)
+            )
+
+            x = list(range(len(dow_order)))
+            width = 0.38
+            x1 = [xi - width / 2.0 for xi in x]
+            x2 = [xi + width / 2.0 for xi in x]
+
+            y1 = pv_p[1].astype(float).tolist() if 1 in pv_p.columns else [0.0] * len(dow_order)
+            y2 = pv_p[2].astype(float).tolist() if 2 in pv_p.columns else [0.0] * len(dow_order)
+
+            ax4.bar(x1, y1, width=width, label="signal=1")
+            ax4.bar(x2, y2, width=width, label="signal=2")
+            ax4.set_title("Signals by day-of-week (profit_total)")
+            ax4.set_ylabel("Profit")
+            ax4.set_xticks(x)
+            ax4.set_xticklabels(dow_labels, rotation=0)
+            ax4.grid(True, axis="y", alpha=0.25)
+            ax4.legend(loc="best", fontsize=9)
+        else:
+            ax4.text(0.5, 0.5, "No data", ha="center", va="center")
+
+    else:
+        # 3) Доли по сигналам (круг) — как было
+        if not df_sig.empty:
+            ax3.pie(
+                df_sig["count"],
+                labels=list(map(str, df_sig["signal"])),
+                autopct="%1.1f%%",
+                startangle=90,
+            )
+            ax3.set_title("Signals share (count)")
+        else:
+            ax3.text(0.5, 0.5, "No data", ha="center", va="center")
+
+        # 4) Прибыль по сигналам (столбики) — как было
+        if not df_sig.empty:
+            ax4.bar(list(map(str, df_sig["signal"])), df_sig["profit_total"])
+            ax4.set_title("Profit by signal (total)")
+            ax4.set_ylabel("Profit")
+            ax4.grid(True, axis="y", alpha=0.25)
+        else:
+            ax4.text(0.5, 0.5, "No data", ha="center", va="center")
+
+    plt.tight_layout()
+    _maybe_save_or_show(fig, "stats_overview.png", show, save, save_dir, dpi)
+
+
+
+def _plot_weekday_stats(
+    df: pd.DataFrame,
+    stats: Dict[str, Any],
+    show: bool,
+    save: bool,
+    save_dir: Optional[str],
+    dpi: int,
+) -> None:
+    if df is None or len(df) == 0:
+        return
+    if "profit" not in df.columns or "signal" not in df.columns:
         return
 
-    # Фигура 3: 1x3 — Count, Total Profit, Avg Profit per Trade (по дням недели)
-    fig, axs = plt.subplots(nrows=1, ncols=3, figsize=(15, 4.8))
-    ax1, ax2, ax3 = axs
+    df_loc = df.copy()
 
-    # Count
-    ax1.bar(df_wd["weekday"], df_wd["count"])
+    # --- weekday: берём df["dow"] или вычисляем из open_dt ---
+    if "dow" in df_loc.columns:
+        dow = pd.to_numeric(df_loc["dow"], errors="coerce")
+    elif "open_dt" in df_loc.columns:
+        dt = pd.to_datetime(df_loc["open_dt"], errors="coerce")
+        if dt.isna().all():
+            return
+        dow = dt.dt.dayofweek  # Monday=0 ... Sunday=6
+    else:
+        return
+
+    df_loc["dow"] = pd.to_numeric(dow, errors="coerce")
+    df_loc["signal"] = pd.to_numeric(df_loc["signal"], errors="coerce")
+    df_loc["profit"] = pd.to_numeric(df_loc["profit"], errors="coerce").fillna(0.0)
+
+    # нормализуем: сигнал в int, dow в int
+    df_loc = df_loc[df_loc["dow"].notna() & df_loc["signal"].notna()].copy()
+    if len(df_loc) == 0:
+        return
+
+    df_loc["dow"] = df_loc["dow"].round().astype(int)
+    df_loc["signal"] = df_loc["signal"].round().astype(int)
+
+    # только дни 0..6 и сигналы 1..2
+    df_loc = df_loc[df_loc["dow"].isin([0, 1, 2, 3, 4, 5, 6]) & df_loc["signal"].isin([1, 2])].copy()
+    if len(df_loc) == 0:
+        return
+
+    # --- агрегаты по (dow, signal) ---
+    df_loc["is_win"] = (df_loc["profit"] > 0).astype(int)
+
+    agg = (
+        df_loc.groupby(["dow", "signal"], as_index=False)
+        .agg(
+            count=("profit", "size"),
+            profit_total=("profit", "sum"),
+            wins=("is_win", "sum"),
+        )
+    )
+
+    # avg profit per trade
+    agg["avg_profit_per_trade"] = agg["profit_total"] / agg["count"].replace(0, np.nan)
+    agg["avg_profit_per_trade"] = agg["avg_profit_per_trade"].fillna(0.0)
+
+    # winrate
+    agg["winrate_pct"] = (agg["wins"] / agg["count"].replace(0, np.nan) * 100.0).fillna(0.0)
+
+    # --- pivots (гарантируем 2 сигнала всегда) ---
+    dow_order = [0, 1, 2, 3, 4, 5, 6]
+    dow_labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+    def _pivot(metric: str) -> pd.DataFrame:
+        pv = (
+            agg.pivot_table(index="dow", columns="signal", values=metric, aggfunc="sum")
+            .reindex(dow_order)
+            .fillna(0.0)
+        )
+        if 1 not in pv.columns:
+            pv[1] = 0.0
+        if 2 not in pv.columns:
+            pv[2] = 0.0
+        pv = pv[[1, 2]]
+        return pv
+
+    pv_cnt = _pivot("count")
+    pv_profit = _pivot("profit_total")
+    pv_avg = _pivot("avg_profit_per_trade")
+    pv_wr = _pivot("winrate_pct")
+
+    x = np.arange(len(dow_order), dtype=float)
+    width = 0.38
+
+    # ОДНА фигура 2x2: Count, Total Profit, Avg Profit, Winrate (всё на одной картинке)
+    fig, axs = plt.subplots(nrows=2, ncols=2, figsize=(15, 9.2))
+    (ax1, ax2), (ax3, ax4) = axs
+
+    # 1) Count
+    ax1.bar(x - width / 2.0, pv_cnt[1].to_numpy(dtype=float), width=width, label="signal=1")
+    ax1.bar(x + width / 2.0, pv_cnt[2].to_numpy(dtype=float), width=width, label="signal=2")
     ax1.set_title("Trades by weekday (count)")
     ax1.set_ylabel("Count")
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(dow_labels, rotation=0)
     ax1.grid(True, axis="y", alpha=0.25)
+    ax1.legend(loc="best", fontsize=9)
 
-    # Total profit
-    ax2.bar(df_wd["weekday"], df_wd["profit_total"])
+    # 2) Total profit
+    ax2.bar(x - width / 2.0, pv_profit[1].to_numpy(dtype=float), width=width, label="signal=1")
+    ax2.bar(x + width / 2.0, pv_profit[2].to_numpy(dtype=float), width=width, label="signal=2")
     ax2.set_title("Profit by weekday (total)")
     ax2.set_ylabel("Profit")
+    ax2.set_xticks(x)
+    ax2.set_xticklabels(dow_labels, rotation=0)
     ax2.grid(True, axis="y", alpha=0.25)
+    ax2.legend(loc="best", fontsize=9)
 
-    # Avg profit per trade
-    ax3.bar(df_wd["weekday"], df_wd["avg_profit_per_trade"])
+    # 3) Avg profit per trade
+    ax3.bar(x - width / 2.0, pv_avg[1].to_numpy(dtype=float), width=width, label="signal=1")
+    ax3.bar(x + width / 2.0, pv_avg[2].to_numpy(dtype=float), width=width, label="signal=2")
     ax3.set_title("Avg profit per trade by weekday")
     ax3.set_ylabel("Avg profit")
+    ax3.set_xticks(x)
+    ax3.set_xticklabels(dow_labels, rotation=0)
     ax3.grid(True, axis="y", alpha=0.25)
+    ax3.legend(loc="best", fontsize=9)
+
+    # 4) Winrate
+    ax4.bar(x - width / 2.0, pv_wr[1].to_numpy(dtype=float), width=width, label="signal=1")
+    ax4.bar(x + width / 2.0, pv_wr[2].to_numpy(dtype=float), width=width, label="signal=2")
+    ax4.set_title("Winrate by weekday")
+    ax4.set_ylabel("Winrate, %")
+    ax4.set_xticks(x)
+    ax4.set_xticklabels(dow_labels, rotation=0)
+    ax4.grid(True, axis="y", alpha=0.25)
+    ax4.legend(loc="best", fontsize=9)
 
     plt.tight_layout()
     _maybe_save_or_show(fig, "weekday_stats.png", show, save, save_dir, dpi)
 
-    # Фигура 4 (дополнительно): Winrate по дням недели
-    fig2, ax = plt.subplots(figsize=(8, 4.2))
-    ax.bar(df_wd["weekday"], df_wd["winrate_pct"])
-    ax.set_title("Winrate by weekday")
-    ax.set_ylabel("Winrate, %")
-    ax.grid(True, axis="y", alpha=0.25)
-    plt.tight_layout()
-    _maybe_save_or_show(fig2, "weekday_winrate.png", show, save, save_dir, dpi)
+
 
 
 def _plot_trades_timeline(
@@ -1588,7 +1814,6 @@ def _plot_trades_timeline(
             plot_title=f"{base_title} — {int(yyy)}",
         )
 
-            
 def _plot_nested_features_profit_maps(
     trades: List[Dict[str, Any]],
     *,
@@ -1609,7 +1834,7 @@ def _plot_nested_features_profit_maps(
       - X: значение feature
       - Y: profit
       - сверху: Σprofit по X-бинам
-      - плотная нижняя шкала X + вертикальные полупрозрачные линии по тикам
+      - плотная нижняя шкала X + вертикальные полупрозрачные линии по ГРАНИЦАМ БИНОВ
 
     Параметры:
       trades: list[dict] - список сделок
@@ -1617,8 +1842,6 @@ def _plot_nested_features_profit_maps(
       max_features: ограничить число фич, если их много (None = все)
       debug: печатать диагностику
     """
-
-
     if not trades:
         return
 
@@ -1650,7 +1873,8 @@ def _plot_nested_features_profit_maps(
         except Exception:
             return np.nan
 
-    def _dense_x_axis(ax) -> None:
+    def _dense_x_axis(ax, *, bin_edges: Optional[np.ndarray] = None) -> None:
+        # тики оставляем плотными как раньше
         ax.xaxis.set_major_locator(MaxNLocator(nbins=30, min_n_ticks=16))
         ax.xaxis.set_minor_locator(AutoMinorLocator(2))
         ax.tick_params(axis="x", which="major", labelsize=5, pad=0, length=3)
@@ -1664,9 +1888,15 @@ def _plot_nested_features_profit_maps(
 
         ax.margins(x=0)
 
-        # вертикальные линии по major-тикам
-        for t in ax.get_xticks():
-            ax.axvline(t, alpha=0.18, linewidth=0.7, zorder=5)
+        # ВАЖНО: вертикальные линии рисуем по ГРАНИЦАМ БИНОВ (если они есть),
+        # чтобы линии совпадали с диапазонами столбиков сверху.
+        if bin_edges is not None and len(bin_edges) >= 2:
+            for xedge in bin_edges:
+                ax.axvline(float(xedge), alpha=0.18, linewidth=0.7, zorder=5)
+        else:
+            # fallback: как было раньше (по major-тикам)
+            for t in ax.get_xticks():
+                ax.axvline(t, alpha=0.18, linewidth=0.7, zorder=5)
 
     # --- profit ---
     if "profit" in df.columns:
@@ -1699,7 +1929,7 @@ def _plot_nested_features_profit_maps(
     if not all_keys:
         return
 
-    # уникальные ключи (стабильно, но без сортировки по алфавиту можно оставить как есть)
+    # уникальные ключи (стабильно)
     uniq_keys = list(dict.fromkeys(all_keys))
 
     if max_features is not None:
@@ -1795,11 +2025,17 @@ def _plot_nested_features_profit_maps(
             ax.set_xlabel(feat_key)
             ax.set_ylabel(profit_name)
 
+            # по умолчанию: нет бинов для вертикальных линий
+            bin_edges_for_lines: Optional[np.ndarray] = None
+
             # --- TOP PANEL: Σprofit per X-bin ---
             if np.isfinite(x_min) and np.isfinite(x_max) and (x_max > x_min):
                 edges = np.linspace(x_min, x_max, gridsize + 1)
                 centers = (edges[:-1] + edges[1:]) / 2.0
                 width = (edges[1] - edges[0]) * 0.9
+
+                # сохраним edges, чтобы вертикальные линии совпали с границами столбиков
+                bin_edges_for_lines = edges
 
                 idx = np.digitize(x, edges) - 1
                 idx = np.clip(idx, 0, len(centers) - 1)
@@ -1872,8 +2108,8 @@ def _plot_nested_features_profit_maps(
 
                 ax.set_xlim(x_min, x_max)
 
-            # декор (после set_xlim!)
-            _dense_x_axis(ax)
+            # декор (после set_xlim!) + линии по границам бинов
+            _dense_x_axis(ax, bin_edges=bin_edges_for_lines)
 
         # выключить лишние axes
         for j in range(len(signals), len(axes)):
@@ -1891,7 +2127,9 @@ def _plot_nested_features_profit_maps(
         if save:
             out_dir = save_dir or "."
             os.makedirs(out_dir, exist_ok=True)
-            safe_name = "".join(ch if (ch.isalnum() or ch in ("-", "_")) else "_" for ch in feat_key)
+            safe_name = "".join(
+                ch if (ch.isalnum() or ch in ("-", "_")) else "_" for ch in feat_key
+            )
             fig.savefig(
                 os.path.join(out_dir, f"nested_feat_{safe_name}_profit_maps.png"),
                 dpi=dpi,
@@ -1902,6 +2140,320 @@ def _plot_nested_features_profit_maps(
             plt.show()
         else:
             plt.close(fig)
+      
+# def _plot_nested_features_profit_maps(
+#     trades: List[Dict[str, Any]],
+#     *,
+#     show: bool = True,
+#     save: bool = False,
+#     save_dir: Optional[str] = None,
+#     dpi: int = 140,
+#     gridsize: int = 45,
+#     signals: Tuple[int, int] = (1, 2),
+#     max_features: Optional[int] = None,
+#     debug: bool = False,
+# ) -> None:
+#     """
+#     Визуализирует hexbin "feature_value vs profit" для ВСЕХ значений из trades[i]['features'].
+
+#     Для каждого feature_name строится figure:
+#       - 2 subplot'а: отдельно signal=1 и signal=2 (или signals=...)
+#       - X: значение feature
+#       - Y: profit
+#       - сверху: Σprofit по X-бинам
+#       - плотная нижняя шкала X + вертикальные полупрозрачные линии по тикам
+
+#     Параметры:
+#       trades: list[dict] - список сделок
+#       signals: какие сигналы рисовать (по умолчанию (1,2))
+#       max_features: ограничить число фич, если их много (None = все)
+#       debug: печатать диагностику
+#     """
+
+
+#     if not trades:
+#         return
+
+#     df = pd.DataFrame(trades)
+#     if df is None or len(df) == 0:
+#         return
+
+#     if "features" not in df.columns:
+#         return
+
+#     # ---------- helpers ----------
+#     def _coerce_float(v):
+#         if v is None:
+#             return np.nan
+#         try:
+#             if isinstance(v, np.generic):
+#                 return float(v)
+#         except Exception:
+#             pass
+#         if isinstance(v, (list, tuple, np.ndarray)) and len(v) == 1:
+#             v = v[0]
+#             try:
+#                 if isinstance(v, np.generic):
+#                     return float(v)
+#             except Exception:
+#                 pass
+#         try:
+#             return float(v)
+#         except Exception:
+#             return np.nan
+
+#     def _dense_x_axis(ax) -> None:
+#         ax.xaxis.set_major_locator(MaxNLocator(nbins=30, min_n_ticks=16))
+#         ax.xaxis.set_minor_locator(AutoMinorLocator(2))
+#         ax.tick_params(axis="x", which="major", labelsize=5, pad=0, length=3)
+#         ax.tick_params(axis="x", which="minor", length=2, width=0.8)
+
+#         for lab in ax.get_xticklabels(which="major"):
+#             lab.set_rotation(90)
+#             lab.set_horizontalalignment("center")
+#             lab.set_verticalalignment("top")
+#             lab.set_rotation_mode("anchor")
+
+#         ax.margins(x=0)
+
+#         # вертикальные линии по major-тикам
+#         for t in ax.get_xticks():
+#             ax.axvline(t, alpha=0.18, linewidth=0.7, zorder=5)
+
+#     # --- profit ---
+#     if "profit" in df.columns:
+#         profit = pd.to_numeric(df["profit"], errors="coerce")
+#         profit_name = "profit"
+#     elif "profit_total" in df.columns:
+#         profit = pd.to_numeric(df["profit_total"], errors="coerce")
+#         profit_name = "profit_total"
+#     else:
+#         fut = pd.to_numeric(df.get("profit_fut", 0.0), errors="coerce")
+#         opt = pd.to_numeric(df.get("profit_opt", 0.0), errors="coerce")
+#         profit = fut.fillna(0.0) + opt.fillna(0.0)
+#         profit_name = "profit_fut+profit_opt"
+
+#     if profit.notna().sum() < 3:
+#         return
+
+#     # --- signal ---
+#     if "signal" not in df.columns:
+#         return
+#     signal = pd.to_numeric(df["signal"], errors="coerce")
+
+#     # --- собрать список feature keys ---
+#     all_keys = []
+#     for v in df["features"].tolist():
+#         if isinstance(v, dict):
+#             for k in v.keys():
+#                 all_keys.append(str(k))
+
+#     if not all_keys:
+#         return
+
+#     # уникальные ключи (стабильно, но без сортировки по алфавиту можно оставить как есть)
+#     uniq_keys = list(dict.fromkeys(all_keys))
+
+#     if max_features is not None:
+#         uniq_keys = uniq_keys[: int(max_features)]
+
+#     # ---------- main loop over feature keys ----------
+#     for feat_key in uniq_keys:
+#         # достаём значение features[feat_key] для каждой сделки
+#         feat_vals = []
+#         for v in df["features"].tolist():
+#             if isinstance(v, dict):
+#                 feat_vals.append(_coerce_float(v.get(feat_key)))
+#             else:
+#                 feat_vals.append(np.nan)
+
+#         feat = pd.Series(feat_vals, dtype=float)
+
+#         non_nan = int(np.isfinite(feat.to_numpy()).sum())
+#         if non_nan < 3:
+#             if debug:
+#                 print(f"[nested_features] skip {feat_key}: non_nan={non_nan}")
+#             continue
+
+#         ncols = 2 if len(signals) > 1 else 1
+#         nrows = int(math.ceil(len(signals) / ncols))
+
+#         fig, axes = plt.subplots(
+#             nrows,
+#             ncols,
+#             figsize=(14, 5.8 * nrows),
+#             dpi=dpi,
+#             sharey=True,
+#         )
+#         if not isinstance(axes, np.ndarray):
+#             axes = np.array([axes])
+#         axes = axes.reshape(-1)
+
+#         fig.subplots_adjust(top=0.82, hspace=0.55, wspace=0.20)
+
+#         mappables = []
+#         any_plotted = False
+
+#         for i, s_val in enumerate(signals):
+#             ax = axes[i]
+
+#             m = (
+#                 feat.notna()
+#                 & profit.notna()
+#                 & signal.notna()
+#                 & (signal.astype(float) == float(s_val))
+#             )
+#             cnt = int(m.sum())
+
+#             if debug:
+#                 print(f"[nested_features] {feat_key}: signal={s_val} points={cnt}")
+
+#             if cnt < 3:
+#                 ax.axis("off")
+#                 ax.text(
+#                     0.5,
+#                     0.5,
+#                     f"{feat_key} | signal={s_val}\nnot enough points (n={cnt})",
+#                     ha="center",
+#                     va="center",
+#                 )
+#                 continue
+
+#             x = feat[m].astype(float).to_numpy()
+#             y = profit[m].astype(float).to_numpy()
+
+#             # если X константа — поддрожим, чтобы hexbin не “исчез”
+#             x_min = float(np.nanmin(x))
+#             x_max = float(np.nanmax(x))
+#             if np.isfinite(x_min) and np.isfinite(x_max) and (x_max <= x_min):
+#                 scale = 1e-6 if abs(x_min) < 1.0 else abs(x_min) * 1e-9
+#                 rng = np.random.default_rng(0)
+#                 x = x + rng.normal(0.0, scale, size=len(x))
+#                 x_min = float(np.nanmin(x))
+#                 x_max = float(np.nanmax(x))
+
+#             pear = pd.Series(x).corr(pd.Series(y), method="pearson")
+#             spear = pd.Series(x).corr(pd.Series(y), method="spearman")
+
+#             hb = ax.hexbin(x, y, gridsize=gridsize, mincnt=1)
+#             mappables.append(hb)
+#             any_plotted = True
+
+#             ax.axhline(0.0, linewidth=1.0, zorder=6)
+#             ax.set_title(
+#                 f"{feat_key} vs {profit_name} | signal={s_val}\n"
+#                 f"Pearson={pear:.4f}  Spearman={spear:.4f}  (n={cnt})"
+#             )
+#             ax.set_xlabel(feat_key)
+#             ax.set_ylabel(profit_name)
+
+#             # --- TOP PANEL: Σprofit per X-bin ---
+#             if np.isfinite(x_min) and np.isfinite(x_max) and (x_max > x_min):
+#                 edges = np.linspace(x_min, x_max, gridsize + 1)
+#                 centers = (edges[:-1] + edges[1:]) / 2.0
+#                 width = (edges[1] - edges[0]) * 0.9
+
+#                 idx = np.digitize(x, edges) - 1
+#                 idx = np.clip(idx, 0, len(centers) - 1)
+
+#                 sum_profit = np.zeros(len(centers), dtype=float)
+#                 np.add.at(sum_profit, idx, y)
+
+#                 # counts per bin (n)
+#                 bin_n = np.zeros(len(centers), dtype=int)
+#                 np.add.at(bin_n, idx, 1)
+
+#                 # верхняя ось: Σprofit (как было)
+#                 ax_top = ax.inset_axes([0.0, 1.11, 1.0, 0.28], transform=ax.transAxes)
+#                 bars = ax_top.bar(centers, sum_profit, width=width, align="center")
+#                 ax_top.axhline(0.0, linewidth=1.0)
+#                 ax_top.set_ylabel("Σ profit", fontsize=9)
+#                 ax_top.tick_params(axis="both", labelsize=8)
+#                 ax_top.set_xticks([])
+#                 ax_top.set_xlim(x_min, x_max)
+
+#                 y_lo = float(np.nanmin(np.r_[sum_profit, 0.0]))
+#                 y_hi = float(np.nanmax(np.r_[sum_profit, 0.0]))
+#                 y_span = y_hi - y_lo
+#                 pad = (0.10 * y_span) if (y_span > 0) else 1.0
+#                 ax_top.set_ylim(y_lo - pad, y_hi + pad)
+
+#                 # отдельная "шкала" под столбиками для чисел (n и avg), чтобы ничего не обрезалось
+#                 ax_cnt = ax.inset_axes([0.0, 1.05, 1.0, 0.06], transform=ax.transAxes)
+#                 ax_cnt.set_xlim(x_min, x_max)
+#                 ax_cnt.set_ylim(0.0, 1.0)
+#                 ax_cnt.set_xticks([])
+#                 ax_cnt.set_yticks([])
+#                 for sp in ax_cnt.spines.values():
+#                     sp.set_visible(False)
+
+#                 # тонкая линия-разделитель
+#                 ax_cnt.axhline(1.0, color="0.80", linewidth=0.8)
+
+#                 for k, b in enumerate(bars):
+#                     n_k = int(bin_n[k])
+#                     if n_k <= 0:
+#                         continue
+
+#                     avg = float(sum_profit[k]) / float(n_k)
+#                     cx = b.get_x() + b.get_width() / 2.0
+
+#                     # 1) count
+#                     ax_cnt.text(
+#                         cx,
+#                         0.64,
+#                         str(n_k),
+#                         ha="center",
+#                         va="center",
+#                         fontsize=5,
+#                         alpha=0.92,
+#                         clip_on=True,
+#                     )
+
+#                     # 2) avg per trade (under count)
+#                     ax_cnt.text(
+#                         cx,
+#                         0.22,
+#                         f"({avg:+.0f})",
+#                         ha="center",
+#                         va="center",
+#                         fontsize=5,
+#                         alpha=0.92,
+#                         clip_on=True,
+#                     )
+
+#                 ax.set_xlim(x_min, x_max)
+
+#             # декор (после set_xlim!)
+#             _dense_x_axis(ax)
+
+#         # выключить лишние axes
+#         for j in range(len(signals), len(axes)):
+#             axes[j].axis("off")
+
+#         fig.suptitle(f"Nested features: {feat_key}", y=0.98, fontsize=12)
+
+#         # резервируем место справа и выносим colorbar в отдельную ось,
+#         # чтобы шкала НЕ наползала на правый график.
+#         fig.tight_layout(rect=[0, 0.10, 0.90, 0.98])
+#         if any_plotted and len(mappables) > 0:
+#             cax = fig.add_axes([0.92, 0.14, 0.015, 0.72])
+#             fig.colorbar(mappables[-1], cax=cax)
+
+#         if save:
+#             out_dir = save_dir or "."
+#             os.makedirs(out_dir, exist_ok=True)
+#             safe_name = "".join(ch if (ch.isalnum() or ch in ("-", "_")) else "_" for ch in feat_key)
+#             fig.savefig(
+#                 os.path.join(out_dir, f"nested_feat_{safe_name}_profit_maps.png"),
+#                 dpi=dpi,
+#                 bbox_inches="tight",
+#             )
+
+#         if show:
+#             plt.show()
+#         else:
+#             plt.close(fig)
 
 
 def _plot_monthday_signal_profit_heatmap(
@@ -2401,7 +2953,7 @@ def analyse_trades(
         )
 
         all_pngs += _run_plot_save_to_tmp_and_move(
-            plot_fn=lambda td: _plot_weekday_stats(stats, show=False, save=True, save_dir=td, dpi=dpi),
+            plot_fn=lambda td: _plot_weekday_stats(df, stats, show=False, save=True, save_dir=td, dpi=dpi),
             tmp_dir=tmp_dir,
             out_dir=save_dir,
             base_name="03_weekday_stats",

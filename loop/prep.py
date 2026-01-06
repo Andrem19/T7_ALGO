@@ -27,8 +27,8 @@ async def prep():
     #===============CONFIG=================
     #======================================
     sv.regime = 1
-    sv.START=datetime(2024, 4, 1)
-    sv.END=datetime(2026, 1, 1)
+    sv.START=datetime(2020, 8, 1)
+    sv.END=datetime(2027, 1, 1)
 
     
     #======================================
@@ -41,7 +41,7 @@ async def prep():
     sv.data_15m = load_data_sets(15)
     sv.data_5m = load_data_sets(5)
     
-    sv.data_dvol = util.load_csv_as_dict('BTC_DVOL_3600s_20200101_20251212.csv', key_col="timestamp_ms", drop_constant_and_all_nan=True, drop_non_numeric=True)
+    sv.data_dvol = util.load_csv_as_dict('/home/jupiter/PYTHON/MARKET_DATA/BTC_DVOL_3600s_20210101_20260106.csv', key_col="timestamp_ms", drop_constant_and_all_nan=True, drop_non_numeric=True)
     sv.precalc_pic = util.load_csv_as_dict('pic_cl.csv', key_col="timestamp_ms", drop_constant_and_all_nan=True, drop_non_numeric=True)
     sv.cls_t = util.load_csv_as_dict('cls_t.csv', key_col="timestamp_ms")
     sv.regime_state_1 = util.load_csv_as_dict('markov/model_3_prod/artifacts/train_states.csv', key_col='ts_ms')

@@ -56,7 +56,7 @@ def _project_root_default_csv() -> str:
     # helpers/.. -> project root
     here = os.path.dirname(os.path.abspath(__file__))
     root = os.path.abspath(os.path.join(here, os.pardir))
-    return os.path.join(root, "BTC_DVOL_3600s_20200101_20251212.csv")
+    return os.path.join(root, "/home/jupiter/PYTHON/MARKET_DATA/BTC_DVOL_3600s_20210101_20260106.csv")
 
 
 def _ffill_np(x: np.ndarray) -> np.ndarray:

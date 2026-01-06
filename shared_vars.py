@@ -70,3 +70,9 @@ last_positions = None
 flag_1 = 0
 dur_d = None
 dur_h = None
+
+ch_1d = None
+timestamp = None
+ch_res = None
+hist_pos = None
+dt = None

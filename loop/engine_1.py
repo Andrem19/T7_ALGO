@@ -60,10 +60,6 @@ def engine_1(h, i, gen_ind, signal):
                 close_price = sv.data_5m[ind][4]
                 break
             
-        if duration*5 > 750 and signal == 2 and sv.data_5m[ind][4] > open_price:
-            type_of_close = 'max_point_2'
-            close_price = sv.data_5m[ind][4]
-            break
 
         last_20m = util.calculate_percent_difference(sv.data_5m[ind-3][1], sv.data_5m[ind][4])
         if (last_20m > 0.02) and signal == 1:
@@ -98,9 +94,9 @@ def engine_1(h, i, gen_ind, signal):
             # 'dvol_minus_rv_12h': float(sv.feats['dvol_minus_rv_12h']),
             # 'atr_ratio_24h_7d': float(sv.feats['atr_ratio_24h_7d']),
             'regime_h': sv.reg_h,
-            'regime_d': sv.reg_d,
-            'dur_d': sv.dur_d,
-            'dur_h': sv.dur_h,
+            'regime_d': sv.ch_1d,
+            # 'dur_d': sv.dur_d,
+            # 'dur_h': sv.dur_h,
             'd': dt.weekday(),
             # 'super_r': sv.super_r,
             # 'cls_1h': int(sv.cls_1h),
@@ -109,9 +105,9 @@ def engine_1(h, i, gen_ind, signal):
             # 'cls_5m': int(sv.cls_5m),
             # 'super_cls': int(sv.super_cls),
             # 'd': sv.dow,
-            # 'h': sv.hour,
+            'h': sv.hour,
             # 'cl_1d': int(sv.cl_1d),
-            # 'cl_4h': int(sv.cl_4h),
+            'cl_4h': int(sv.cl_4h),
             # 'cl_1h': int(sv.cl_1h),
             # 'cl_15m': int(sv.cl_15m),
             
@@ -120,13 +116,12 @@ def engine_1(h, i, gen_ind, signal):
     # result['features'].update(sv.comb_classes)
     # result['features'].update(quantile_classes_0_4(rsi=sv.rsi, atr=sv.atr, iv_est=sv.iv_est, squize_index=sv.squeeze_count, ret_6h=sv.feats['ret_6h'], dvol_minus_rv_12h=sv.feats['dvol_minus_rv_12h'], atr_ratio_24h_7d=sv.feats['atr_ratio_24h_7d']))
     
-    sv.summa += result['profit']
-    sv.full+=1
+
     
-    print(f'{dt} signal: {signal} open: {open_price} close: {close_price}')
-    print('Duration min: ', duration*5)
-    print('Profit: ', result['profit'])
-    print(f'Summa: {sv.summa} full: {sv.full}\n\n')
+    # print(f'{dt} signal: {signal} open: {open_price} close: {close_price}')
+    # print('Duration min: ', duration*5)
+    # print('Profit: ', result['profit'])
+    # print(f'Summa: {sv.summa} full: {sv.full}\n\n')
     
     # row = copy.deepcopy(result['features'])
     # row['targ_1'] = 1 if  fut_profit > 0 else 0
