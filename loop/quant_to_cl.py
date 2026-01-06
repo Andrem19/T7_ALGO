@@ -9,9 +9,6 @@ def quantile_classes_0_4(
     atr: float,
     iv_est: float,
     squize_index: float,
-    ret_6h: float,
-    dvol_minus_rv_12h: float,
-    atr_ratio_24h_7d: float,
 ) -> Dict[str, int]:
     """
     Принимает 7 фич и возвращает класс 0..4 для каждой по границам квантилей.
@@ -38,6 +35,13 @@ def quantile_classes_0_4(
     q_rsi_80 = 59.48455201886614
     q_rsi_100 = 87.5088827002338
 
+    # q_atr_0 = 0.0010695035518906
+    # q_atr_20 = 0.004
+    # q_atr_40 = 0.00687444297853534
+    # q_atr_60 = 0.012
+    # q_atr_80 = 0.03
+    # q_atr_100 = 0.0529649173754248
+    
     q_atr_0 = 0.0010695035518906
     q_atr_20 = 0.00527083189877616
     q_atr_40 = 0.00687444297853534
@@ -151,63 +155,9 @@ def quantile_classes_0_4(
     else:
         cls_sq = 4
 
-    # RET_6H
-    x = ret_6h
-    if x < q_ret_0:
-        x = q_ret_0
-    elif x > q_ret_100:
-        x = q_ret_100
-    if x < q_ret_20:
-        cls_ret = 0
-    elif x < q_ret_40:
-        cls_ret = 1
-    elif x < q_ret_60:
-        cls_ret = 2
-    elif x < q_ret_80:
-        cls_ret = 3
-    else:
-        cls_ret = 4
-
-    # DVOL_MINUS_RV_12H
-    x = dvol_minus_rv_12h
-    if x < q_dmr_0:
-        x = q_dmr_0
-    elif x > q_dmr_100:
-        x = q_dmr_100
-    if x < q_dmr_20:
-        cls_dmr = 0
-    elif x < q_dmr_40:
-        cls_dmr = 1
-    elif x < q_dmr_60:
-        cls_dmr = 2
-    elif x < q_dmr_80:
-        cls_dmr = 3
-    else:
-        cls_dmr = 4
-
-    # ATR_RATIO_24H_7D
-    x = atr_ratio_24h_7d
-    if x < q_ar_0:
-        x = q_ar_0
-    elif x > q_ar_100:
-        x = q_ar_100
-    if x < q_ar_20:
-        cls_ar = 0
-    elif x < q_ar_40:
-        cls_ar = 1
-    elif x < q_ar_60:
-        cls_ar = 2
-    elif x < q_ar_80:
-        cls_ar = 3
-    else:
-        cls_ar = 4
-
     return {
         "rsi": cls_rsi,
         "atr": cls_atr,
         "iv_est": cls_iv,
-        "squize_index": cls_sq,
-        "ret_6h": cls_ret,
-        "dvol_minus_rv_12h": cls_dmr,
-        "atr_ratio_24h_7d": cls_ar,
+        "squize_index": cls_sq
     }

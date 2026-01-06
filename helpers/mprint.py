@@ -778,6 +778,87 @@ def force_color(enable: Optional[bool]) -> None:
     return logger.force_color(enable)
 
 
+def row(
+    color_map: dict[str, object],
+    *,
+    sep: str = " ",
+    stream=None,
+    flush: bool = True,
+    bold: bool = False,
+) -> None:
+    """
+    Напечатать значения в ОДНУ строку (без перевода строки), раскрашивая по ключам словаря.
+
+    Пример:
+        d = {"green": 123, "red": "ERR", "yellow": 0.25}
+        row(d)  # напечатает: 123 ERR 0.25 (каждое своим цветом), без \n в конце
+
+    :param color_map: dict вида { "green": value1, "red": value2, ... }
+                      Порядок вывода = порядок элементов dict (в Python 3.7+ он сохраняется).
+    :param sep: разделитель между фрагментами.
+    :param stream: куда печатать (по умолчанию sys.stdout).
+    :param flush: делать flush потока.
+    :param bold: печатать все фрагменты жирным (True/False).
+    """
+    if not color_map:
+        return
+
+    stream = sys.stdout if stream is None else stream
+
+    # Решаем, красить ли вывод (учитывает logger.force_color(...) и isatty())
+    use_color = False
+    try:
+        use_color = logger._should_colorize_stream(stream)  # noqa: SLF001
+    except Exception:
+        use_color = False
+
+    parts: list[str] = []
+    for color_name, value in color_map.items():
+        text = str(value)
+        c = (color_name or "").strip().lower()
+
+        if use_color and c in MPrintLogger.PALETTE:
+            try:
+                sgr = logger._compose_sgr(MPrintLogger.PALETTE[c], bold=bold)  # noqa: SLF001
+                parts.append(f"{sgr}{text}{MPrintLogger.ANSI_RESET}")
+            except Exception:
+                parts.append(text)
+        else:
+            parts.append(text)
+
+    try:
+        stream.write(sep.join(parts))  # ВАЖНО: без перевода строки
+    except Exception:
+        # Совсем аварийный фоллбек
+        try:
+            sys.stdout.write(sep.join(parts))
+        except Exception:
+            return
+
+    if flush:
+        try:
+            stream.flush()
+        except Exception:
+            pass
+
+
+def _logger_row(
+    self: MPrintLogger,
+    color_map: dict[str, object],
+    *,
+    sep: str = " ",
+    stream=None,
+    flush: bool = True,
+    bold: bool = False,
+) -> None:
+    """То же самое, но как метод logger.row(...)."""
+    return row(color_map, sep=sep, stream=stream, flush=flush, bold=bold)
+
+
+# Добавляем как метод экземплярам/классу (ничего не меняем в общей логике логгера)
+setattr(MPrintLogger, "row", _logger_row)
+
+
 # Явно объявим публичный API модуля (для удобства autocomplete и from mprint import *)
 __all__ = (
     ["logger", "log", "save", "disable_save", "set_time_format", "set_default_time", "force_color"]

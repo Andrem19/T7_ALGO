@@ -5,6 +5,7 @@ from loop.signal import get_signal
 from loop.engine_1 import engine_1
 from helpers.util import find_candle_index
 import helpers.util as util
+from helpers.mprint import row
 
 PATH_TRAIN_DATA = 'ch_res_2.csv'
 def run(h: int, start: int):
@@ -17,14 +18,16 @@ def run(h: int, start: int):
         if signal !=0:
             index_5m = find_candle_index(sv.data_1h[i][0], sv.data_5m)
             result_1 = engine_1(h, index_5m, i, signal)
-
+            # result_2 = engine_1(h, index_5m, i, 2)
 
             sv.positions_list.append(result_1)
             sv.summa += result_1['profit']
             sv.full+=1
-            print(f'dt: {sv.dt} summa: {sv.summa} all: {sv.full} signal: {result_1["signal"]} profit: {result_1["profit"]}')
+            color_profit = 'red' if result_1['profit'] <= 0 else 'green'
+            row({'yellow': f'{sv.dt}', 'blue': f'summa: {sv.summa}', 'brown': f'all: {sv.full}', 'white': f'signal: {result_1["signal"]}', color_profit: f'profit: {result_1["profit"]}\n'})
+            # print(f'dt: {sv.dt} summa: {sv.summa} all: {sv.full} signal: {result_1["signal"]} profit: {result_1["profit"]}')
             
-            # row = {
+            # save_dict = {
             #     'tm_ms': sv.timestamp,
             #     'ch_1d': sv.ch_1d,
             #     'hill': sv.hill,
@@ -46,7 +49,7 @@ def run(h: int, start: int):
             #     'profit_1': result_1['profit'],
             #     'profit_2': result_2['profit']
             # }
-            # row.update(quantile_classes_0_4(rsi=sv.rsi, atr=sv.atr, iv_est=sv.iv_est, squize_index=sv.squeeze_count, ret_6h=0, dvol_minus_rv_12h=0, atr_ratio_24h_7d=0))
+            # save_dict.update(quantile_classes_0_4(rsi=sv.rsi, atr=sv.atr, iv_est=sv.iv_est, squize_index=sv.squeeze_index)
             # util.append_dict_to_csv(row, PATH_TRAIN_DATA)
             i+=(result_1['duration_min']//60)+1
         else:

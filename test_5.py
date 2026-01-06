@@ -9,9 +9,9 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 
 
-# -----------------------------
-# Result container
-# -----------------------------
+# ============================================================
+# Result containers
+# ============================================================
 @dataclass(frozen=True)
 class MetricsTimelineResult:
     df_plot: pd.DataFrame
@@ -21,9 +21,16 @@ class MetricsTimelineResult:
     crosshair: Optional[Any] = None
 
 
-# -----------------------------
-# Matplotlib crosshair helper
-# -----------------------------
+@dataclass(frozen=True)
+class SmileDashboardResult:
+    df_smile: pd.DataFrame
+    fig: plt.Figure
+    axes: Sequence[plt.Axes]
+
+
+# ============================================================
+# Matplotlib crosshair helper (for 1st window, unchanged)
+# ============================================================
 class _MultiAxisCrosshair:
     def __init__(
         self,
@@ -46,13 +53,9 @@ class _MultiAxisCrosshair:
         self._x_dt = idx_utc.to_pydatetime()
         self._x_num = mdates.date2num(self._x_dt)
 
-        # One vertical line per axis
         self._vlines = [ax.axvline(self._x_num[0], linewidth=1.0, alpha=0.35, linestyle="--") for ax in self.axes]
-
-        # Markers (one per plotted series group)
         self._markers = self._init_markers()
 
-        # Info panel on the first axis
         ax0 = self.axes[0]
         self._info = ax0.annotate(
             "",
@@ -69,19 +72,9 @@ class _MultiAxisCrosshair:
         self._cid_leave: Optional[int] = None
 
     def _init_markers(self) -> dict:
-        """
-        Markers follow the nearest timestamp:
-          - price: close
-          - iv: iv_call25 & iv_put25
-          - rr: rr25
-          - bf: bf25
-          - availability: availability_all_4
-        """
         ax_price, ax_iv, ax_rr, ax_bf, ax_av = self.axes
-
         markers: dict = {}
 
-        # Helper: create marker that reuses existing line color if possible
         def mk_marker(ax: plt.Axes, ref_line: Optional[Any] = None):
             color = None
             if ref_line is not None:
@@ -92,11 +85,9 @@ class _MultiAxisCrosshair:
             (m,) = ax.plot([], [], marker="o", linestyle="None", markersize=5, color=color)
             return m
 
-        # price marker uses first line on that axis (close)
         ref_price_line = ax_price.lines[0] if ax_price.lines else None
         markers["close"] = mk_marker(ax_price, ref_price_line)
 
-        # iv markers use first two lines on that axis
         ref_iv1 = ax_iv.lines[0] if len(ax_iv.lines) >= 1 else None
         ref_iv2 = ax_iv.lines[1] if len(ax_iv.lines) >= 2 else None
         markers["iv_call25"] = mk_marker(ax_iv, ref_iv1)
@@ -142,22 +133,15 @@ class _MultiAxisCrosshair:
         self._hide()
 
     def _on_move(self, event) -> None:
-        if event.inaxes is None:
+        if event.inaxes is None or event.xdata is None:
             self._hide()
             return
-
-        if event.xdata is None:
-            self._hide()
-            return
-
-        # Only react if mouse is over one of our axes
         if event.inaxes not in self.axes:
             self._hide()
             return
 
         x = float(event.xdata)
 
-        # nearest index by x
         pos = int(np.searchsorted(self._x_num, x))
         if pos <= 0:
             i = 0
@@ -171,23 +155,19 @@ class _MultiAxisCrosshair:
         x_i = self._x_num[i]
         dt_i = self._x_dt[i]
 
-        # Update vlines
         for vl in self._vlines:
             vl.set_xdata([x_i, x_i])
             vl.set_visible(True)
 
-        # Pull row values
         row = self.df_plot.iloc[i]
         close = row.get("close", np.nan)
-
         ivc = row.get("iv_call25", np.nan)
         ivp = row.get("iv_put25", np.nan)
         rr = row.get("rr25", np.nan)
         bf = row.get("bf25", np.nan)
         av = row.get("availability_all_4", np.nan)
 
-        # Update markers (hide if NaN)
-        def set_marker(name: str, ax_idx: int, y: float) -> None:
+        def set_marker(name: str, y: float) -> None:
             m = self._markers.get(name)
             if m is None:
                 return
@@ -198,14 +178,13 @@ class _MultiAxisCrosshair:
             m.set_data([x_i], [float(y)])
             m.set_visible(True)
 
-        set_marker("close", 0, close)
-        set_marker("iv_call25", 1, ivc)
-        set_marker("iv_put25", 1, ivp)
-        set_marker("rr25", 2, rr)
-        set_marker("bf25", 3, bf)
-        set_marker("availability_all_4", 4, av)
+        set_marker("close", close)
+        set_marker("iv_call25", ivc)
+        set_marker("iv_put25", ivp)
+        set_marker("rr25", rr)
+        set_marker("bf25", bf)
+        set_marker("availability_all_4", av)
 
-        # Info panel text (human-friendly; if NaN -> "NA")
         def fmt(v: Any, digits: int = 6) -> str:
             if v is None:
                 return "NA"
@@ -233,12 +212,12 @@ class _MultiAxisCrosshair:
         self.fig.canvas.draw_idle()
 
 
-# -----------------------------
+# ============================================================
 # Data prep helpers
-# -----------------------------
+# ============================================================
 def _prepare_df_plot(
     candles_1h: Union[np.ndarray, Sequence[Sequence[float]]],
-    metrics_csv_path: str,
+    metrics_csv_path: showing,
 ) -> Tuple[pd.DataFrame, pd.Timestamp, pd.Timestamp, Sequence[str]]:
     c = np.asarray(candles_1h)
     if c.ndim != 2 or c.shape[1] < 6:
@@ -315,9 +294,9 @@ def _compute_no_data_blocks(df_plot: pd.DataFrame, metric_cols: Sequence[str]) -
     return no_data_blocks
 
 
-# -----------------------------
-# Main plotting function
-# -----------------------------
+# ============================================================
+# 1) First window: existing timeline function (unchanged behaviour)
+# ============================================================
 def plot_metrics_mini_timeline(
     candles_1h: Union[np.ndarray, Sequence[Sequence[float]]],
     metrics_csv_path: str = "metrics_mini.csv",
@@ -327,17 +306,6 @@ def plot_metrics_mini_timeline(
     show: bool = True,
     matplotlib_interactive_crosshair: bool = True,
 ) -> MetricsTimelineResult:
-    """
-    Интерактивная визуализация метрик iv_call25, iv_put25, rr25, bf25 на таймлайне.
-
-    backend:
-      - "plotly": максимально интерактивно (вертикальная линия по всем графикам, unified hover, зум/пан).
-      - "matplotlib": остаёмся на matplotlib, но добавляем crosshair (вертикальная линия на всех осях + панель значений).
-
-    Пропуски:
-      - если метрик нет (NaN) или значение было 0 в csv → считаем “нет данных” и линия рвётся.
-      - интервалы “нет данных” подсвечиваются полупрозрачными полосами.
-    """
     df_plot, start, end, metric_cols = _prepare_df_plot(candles_1h, metrics_csv_path)
     no_data_blocks = _compute_no_data_blocks(df_plot, metric_cols)
 
@@ -389,7 +357,6 @@ def plot_metrics_mini_timeline(
             col=1,
         )
 
-        # shaded "no data" blocks
         for (a, b) in no_data_blocks:
             fig.add_vrect(
                 x0=a,
@@ -401,12 +368,11 @@ def plot_metrics_mini_timeline(
 
         fig.update_layout(
             title=title,
-            hovermode="x unified",  # unified tooltip for the whole vertical slice
+            hovermode="x unified",
             legend=dict(orientation="h"),
             margin=dict(l=60, r=30, t=60, b=40),
         )
 
-        # vertical "spike" line across all subplots
         fig.update_xaxes(
             showspikes=True,
             spikemode="across",
@@ -415,7 +381,6 @@ def plot_metrics_mini_timeline(
             spikedash="solid",
         )
 
-        # Make availability axis nice
         fig.update_yaxes(range=[-0.15, 1.15], row=5, col=1)
 
         if show:
@@ -423,9 +388,7 @@ def plot_metrics_mini_timeline(
 
         return MetricsTimelineResult(df_plot=df_plot, backend="plotly", fig=fig, axes=None, crosshair=None)
 
-    # -------------------------
-    # Matplotlib backend (+ optional crosshair)
-    # -------------------------
+    # matplotlib
     fig, axes = plt.subplots(
         nrows=5,
         ncols=1,
@@ -483,20 +446,340 @@ def plot_metrics_mini_timeline(
     return MetricsTimelineResult(df_plot=df_plot, backend="matplotlib", fig=fig, axes=axes, crosshair=crosshair)
 
 
-# -----------------------------
+# ============================================================
+# 2) Second window: smile dashboard (separate)
+# ============================================================
+def _compute_smile_features(df_plot: pd.DataFrame) -> pd.DataFrame:
+    df = df_plot.copy()
+
+    # level proxy at 25d: average of call25 and put25
+    df["iv_mid25"] = (df["iv_call25"] + df["iv_put25"]) / 2.0
+
+    # approximate ATM IV using BF definition: bf25 = mid25 - atm  -> atm = mid25 - bf25
+    df["iv_atm_est"] = df["iv_mid25"] - df["bf25"]
+
+    # recompute rr from iv legs (quality check / alternative)
+    df["rr_from_iv"] = df["iv_call25"] - df["iv_put25"]
+
+    # how much rr25 differs from recomputed (should be near 0 if convention matches)
+    df["rr_gap"] = df["rr25"] - df["rr_from_iv"]
+
+    # normalised shape indicators
+    denom = df["iv_atm_est"].replace(0, np.nan)
+    df["rr25_norm"] = df["rr25"] / denom
+    df["bf25_norm"] = df["bf25"] / denom
+
+    # 3-point smile series
+    df["smile_put25"] = df["iv_put25"]
+    df["smile_atm"] = df["iv_atm_est"]
+    df["smile_call25"] = df["iv_call25"]
+
+    return df
+
+
+def plot_smile_dashboard_matplotlib(
+    df_plot: pd.DataFrame,
+    *,
+    title: str = "Smile dashboard (put25 / atm_est / call25)",
+    show: bool = True,
+) -> SmileDashboardResult:
+    """
+    Отдельное окно:
+      - Smile curve (3 точки: put25, atm_est, call25) с ползунком времени
+      - Heatmap этих 3 рядов по времени
+      - Доп. ряды (iv_mid25, iv_atm_est, rr_gap, rr_norm, bf_norm)
+    """
+    from matplotlib.widgets import Slider
+
+    if not isinstance(df_plot.index, pd.DatetimeIndex):
+        raise ValueError("df_plot must have DatetimeIndex index.")
+
+    df = _compute_smile_features(df_plot)
+
+    # Для улыбки нам критично иметь call/put/bf (иначе atm_est будет NaN)
+    smile_cols = ["smile_put25", "smile_atm", "smile_call25"]
+    avail_smile = (~df[smile_cols].isna()).all(axis=1)
+
+    # Prepare X as numeric for some elements
+    idx = df.index
+    idx_utc = idx.tz_convert("UTC") if idx.tz is not None else idx.tz_localize("UTC")
+    x_dt = idx_utc.to_pydatetime()
+    x_num = mdates.date2num(x_dt)
+
+    n = len(df)
+    if n < 2:
+        raise ValueError("Not enough points to build dashboard.")
+
+    fig = plt.figure(figsize=(15, 9))
+    gs = fig.add_gridspec(
+        nrows=2,
+        ncols=2,
+        height_ratios=[1.1, 1.0],
+        width_ratios=[1.0, 1.25],
+        left=0.06,
+        right=0.98,
+        top=0.92,
+        bottom=0.12,
+        wspace=0.18,
+        hspace=0.22,
+    )
+
+    ax_smile = fig.add_subplot(gs[0, 0])
+    ax_derived = fig.add_subplot(gs[1, 0], sharex=None)
+    ax_heat = fig.add_subplot(gs[:, 1])
+    axes = (ax_smile, ax_derived, ax_heat)
+
+    fig.suptitle(title)
+
+    # -------------------------
+    # Smile plot (3 points)
+    # -------------------------
+    x_smile = np.array([-25.0, 0.0, 25.0], dtype=float)
+
+    (line_smile,) = ax_smile.plot([], [], linewidth=1.6)
+    (pts_smile,) = ax_smile.plot([], [], marker="o", linestyle="None", markersize=6)
+
+    txt_no_data = ax_smile.text(
+        0.5,
+        0.5,
+        "No data for this hour",
+        transform=ax_smile.transAxes,
+        ha="center",
+        va="center",
+        alpha=0.75,
+    )
+    txt_no_data.set_visible(False)
+
+    ax_smile.set_title("Smile curve (25d put → ATM_est → 25d call)")
+    ax_smile.set_xlabel("Delta (proxy)")
+    ax_smile.set_ylabel("IV")
+    ax_smile.set_xlim(-30, 30)
+    ax_smile.grid(True, alpha=0.25)
+
+    # -------------------------
+    # Heatmap (3 x N)
+    # -------------------------
+    heat_data = np.vstack([df["smile_put25"].to_numpy(), df["smile_atm"].to_numpy(), df["smile_call25"].to_numpy()])
+    heat_masked = np.ma.masked_invalid(heat_data)
+
+    # Use date extent so x-axis can display real dates
+    x0 = x_num[0]
+    x1 = x_num[-1]
+    im = ax_heat.imshow(
+        heat_masked,
+        aspect="auto",
+        origin="lower",
+        extent=[x0, x1, -0.5, 2.5],
+        interpolation="nearest",
+    )
+    ax_heat.set_title("Smile levels heatmap (put25 / atm_est / call25)")
+    ax_heat.set_yticks([0, 1, 2])
+    ax_heat.set_yticklabels(["put25", "atm_est", "call25"])
+
+    locator = mdates.AutoDateLocator(minticks=6, maxticks=14)
+    formatter = mdates.ConciseDateFormatter(locator)
+    ax_heat.xaxis.set_major_locator(locator)
+    ax_heat.xaxis.set_major_formatter(formatter)
+
+    cbar = fig.colorbar(im, ax=ax_heat, fraction=0.04, pad=0.02)
+    cbar.set_label("IV")
+
+    vline_heat = ax_heat.axvline(x_num[0], linewidth=1.0, alpha=0.5, linestyle="--")
+
+    # -------------------------
+    # Derived series plot
+    # -------------------------
+    ax_derived.set_title("Derived series (level / checks / normalised shape)")
+    ax_derived.grid(True, alpha=0.25)
+    ax_derived.set_xlabel("Time (UTC)")
+
+    # Left axis: iv_mid25 and iv_atm_est
+    (l_mid,) = ax_derived.plot(x_num, df["iv_mid25"].to_numpy(), linewidth=1.2, label="iv_mid25")
+    (l_atm,) = ax_derived.plot(x_num, df["iv_atm_est"].to_numpy(), linewidth=1.2, label="iv_atm_est")
+    ax_derived.set_ylabel("IV level")
+
+    # Right axis: rr_gap + norms (optional but useful)
+    ax_r = ax_derived.twinx()
+    (l_gap,) = ax_r.plot(x_num, df["rr_gap"].to_numpy(), linewidth=1.0, alpha=0.9, label="rr_gap")
+    (l_rrn,) = ax_r.plot(x_num, df["rr25_norm"].to_numpy(), linewidth=1.0, alpha=0.85, label="rr25_norm")
+    (l_bfn,) = ax_r.plot(x_num, df["bf25_norm"].to_numpy(), linewidth=1.0, alpha=0.85, label="bf25_norm")
+    ax_r.set_ylabel("RR/BF shape (norm / gap)")
+
+    vline_der = ax_derived.axvline(x_num[0], linewidth=1.0, alpha=0.5, linestyle="--")
+    vline_der_r = ax_r.axvline(x_num[0], linewidth=1.0, alpha=0.5, linestyle="--")
+
+    # Legends: merge left+right
+    h1, lab1 = ax_derived.get_legend_handles_labels()
+    h2, lab2 = ax_r.get_legend_handles_labels()
+    ax_derived.legend(h1 + h2, lab1 + lab2, loc="upper left")
+
+    # Format x-axis on derived plot
+    ax_derived.xaxis.set_major_locator(locator)
+    ax_derived.xaxis.set_major_formatter(formatter)
+
+    # -------------------------
+    # Info box (top-left on smile)
+    # -------------------------
+    info = ax_smile.annotate(
+        "",
+        xy=(0.01, 0.98),
+        xycoords="axes fraction",
+        ha="left",
+        va="top",
+        fontsize=9,
+        bbox=dict(boxstyle="round", alpha=0.85),
+    )
+
+    def _fmt(v: Any, digits: int = 6) -> str:
+        if v is None:
+            return "NA"
+        try:
+            if isinstance(v, (float, np.floating)) and np.isnan(v):
+                return "NA"
+            if isinstance(v, (int, np.integer)):
+                return str(int(v))
+            if isinstance(v, (float, np.floating)):
+                return f"{float(v):.{digits}f}"
+            return str(v)
+        except Exception:
+            return "NA"
+
+    def update(i: int) -> None:
+        i = int(max(0, min(n - 1, i)))
+        row = df.iloc[i]
+        dt_i = x_dt[i]
+        x_i = x_num[i]
+
+        vline_heat.set_xdata([x_i, x_i])
+        vline_der.set_xdata([x_i, x_i])
+        vline_der_r.set_xdata([x_i, x_i])
+
+        if bool(avail_smile.iloc[i]):
+            y = np.array([row["smile_put25"], row["smile_atm"], row["smile_call25"]], dtype=float)
+            line_smile.set_data(x_smile, y)
+            pts_smile.set_data(x_smile, y)
+            line_smile.set_visible(True)
+            pts_smile.set_visible(True)
+            txt_no_data.set_visible(False)
+
+            # reasonable y-limits around this smile
+            y_min = float(np.nanmin(y))
+            y_max = float(np.nanmax(y))
+            pad = max(1e-6, (y_max - y_min) * 0.25)
+            ax_smile.set_ylim(y_min - pad, y_max + pad)
+        else:
+            line_smile.set_data([], [])
+            pts_smile.set_data([], [])
+            line_smile.set_visible(False)
+            pts_smile.set_visible(False)
+            txt_no_data.set_visible(True)
+
+        txt = (
+            f"{dt_i.strftime('%Y-%m-%d %H:%M UTC')}\n"
+            f"close: {_fmt(row.get('close'), 2)}\n"
+            f"iv_put25: {_fmt(row.get('iv_put25'), 4)}   iv_call25: {_fmt(row.get('iv_call25'), 4)}\n"
+            f"iv_mid25: {_fmt(row.get('iv_mid25'), 4)}   iv_atm_est: {_fmt(row.get('iv_atm_est'), 4)}\n"
+            f"rr25: {_fmt(row.get('rr25'), 6)}   rr_from_iv: {_fmt(row.get('rr_from_iv'), 6)}   rr_gap: {_fmt(row.get('rr_gap'), 6)}\n"
+            f"bf25: {_fmt(row.get('bf25'), 6)}   rr_norm: {_fmt(row.get('rr25_norm'), 6)}   bf_norm: {_fmt(row.get('bf25_norm'), 6)}\n"
+            f"data_ok(all4): {_fmt(row.get('availability_all_4'), 0)}"
+        )
+        info.set_text(txt)
+
+        fig.canvas.draw_idle()
+
+    # -------------------------
+    # Slider
+    # -------------------------
+    ax_slider = fig.add_axes([0.10, 0.05, 0.75, 0.03])
+    slider = Slider(
+        ax=ax_slider,
+        label="t (index)",
+        valmin=0,
+        valmax=n - 1,
+        valinit=0,
+        valstep=1,
+    )
+
+    def _on_slider(val: float) -> None:
+        update(int(val))
+
+    slider.on_changed(_on_slider)
+
+    # init
+    update(0)
+
+    if show:
+        plt.show()
+
+    return SmileDashboardResult(df_smile=df, fig=fig, axes=axes)
+
+
+# ============================================================
+# Convenience wrapper: show first window, then second
+# ============================================================
+def show_metrics_then_smile_dashboard(
+    candles_1h: Union[np.ndarray, Sequence[Sequence[float]]],
+    metrics_csv_path: str = "metrics_mini.csv",
+    *,
+    backend_timeline: str = "plotly",
+    show: bool = True,
+    plotly_wait: bool = False,
+) -> Tuple[MetricsTimelineResult, SmileDashboardResult]:
+    """
+    1) Показывает первое окно (таймлайн) как раньше.
+    2) Затем (после закрытия первого — если matplotlib; либо после ожидания — если plotly_wait=True)
+       показывает второе окно со smile dashboard.
+
+    plotly_wait:
+      - если backend_timeline="plotly", то fig.show() обычно не блокирует выполнение.
+        Чтобы второе окно не появлялось сразу, можно включить plotly_wait=True (будет ожидание Enter).
+    """
+    res1 = plot_metrics_mini_timeline(
+        candles_1h=candles_1h,
+        metrics_csv_path=metrics_csv_path,
+        backend=backend_timeline,
+        show=show,
+    )
+
+    if show and (backend_timeline or "").strip().lower() == "plotly" and plotly_wait:
+        try:
+            input("Close the first Plotly tab/window, then press Enter to open Smile dashboard...")
+        except Exception:
+            pass
+
+    res2 = plot_smile_dashboard_matplotlib(
+        res1.df_plot,
+        title="Smile dashboard (put25 / atm_est / call25) + derived checks",
+        show=show,
+    )
+    return res1, res2
+
+
+# ============================================================
 # Example (your style)
-# -----------------------------
-from datetime import datetime
-import shared_vars as sv
-from helpers.get_data import load_data_sets
+# ============================================================
+if __name__ == "__main__":
+    from datetime import datetime
+    import shared_vars as sv
+    from helpers.get_data import load_data_sets
 
-sv.START = datetime(2020, 8, 1)
-sv.END = datetime(2027, 1, 1)
-sv.data_1h = load_data_sets(60)
+    sv.START = datetime(2020, 8, 1)
+    sv.END = datetime(2027, 1, 1)
+    sv.data_1h = load_data_sets(60)
 
-res = plot_metrics_mini_timeline(
-    candles_1h=sv.data_1h,
-    metrics_csv_path="metrics_mini.csv",
-    backend="plotly",
-    show=True,
-)
+    # Вариант 1: plotly таймлайн + потом smile (для plotly лучше включить plotly_wait=True)
+    show_metrics_then_smile_dashboard(
+        candles_1h=sv.data_1h,
+        metrics_csv_path="metrics_mini.csv",
+        backend_timeline="plotly",
+        show=True,
+        plotly_wait=True,
+    )
+
+    # Вариант 2: matplotlib таймлайн (закрыли окно → открылось второе автоматически)
+    # show_metrics_then_smile_dashboard(
+    #     candles_1h=sv.data_1h,
+    #     metrics_csv_path="metrics_mini.csv",
+    #     backend_timeline="matplotlib",
+    #     show=True,
+    # )

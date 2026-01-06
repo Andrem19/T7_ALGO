@@ -114,7 +114,7 @@ def engine_1(h, i, gen_ind, signal):
         }
     }
     # result['features'].update(sv.comb_classes)
-    # result['features'].update(quantile_classes_0_4(rsi=sv.rsi, atr=sv.atr, iv_est=sv.iv_est, squize_index=sv.squeeze_count, ret_6h=sv.feats['ret_6h'], dvol_minus_rv_12h=sv.feats['dvol_minus_rv_12h'], atr_ratio_24h_7d=sv.feats['atr_ratio_24h_7d']))
+    # result['features'].update(quantile_classes_0_4(rsi=sv.rsi, atr=sv.atr, iv_est=sv.iv_est, squize_index=sv.squeeze_index)
     
 
     

@@ -66,7 +66,7 @@ def get_signal(i, start):
     sv.atr = atr_raw/sv.data_1h[i][1]
     sv.rsi = talib.RSI(sv.data_1h[i-60:i, 4], timeperiod=14)[-1]
     sv.squeeze_index, sv.squeeze_count = plot_kc_bb_squeeze_np(sv.data_1h[i - 84:i], "test", save_image=False)
-    d_fut = quantile_classes_0_4(rsi=sv.rsi, atr=sv.atr, iv_est=sv.iv_est, squize_index=sv.squeeze_count, ret_6h=0, dvol_minus_rv_12h=0, atr_ratio_24h_7d=0)
+    d_fut = quantile_classes_0_4(rsi=sv.rsi, atr=sv.atr, iv_est=sv.iv_est, squize_index=sv.squeeze_index)
     
     # day_start = util.day_start_ts_ms_utc(int(sv.data_1h[i][0]))
     # day_index = find_candle_index(day_start, sv.data_1d)
@@ -127,7 +127,7 @@ def get_signal(i, start):
     # )
     
     # sv.ch_1d = int(ch_1["states"][-1])
-    
+
     vars_1 = {
         'dow': dow,
         'atr': d_fut['atr'],
