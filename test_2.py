@@ -7,18 +7,30 @@ import time
 import itertools
 import math
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
+
+import shared_vars as sv
+
 
 
 # -----------------------------
 # Настройки по умолчанию
 # -----------------------------
 
-DEFAULT_EXCLUDE_COLS = ("tm_ms", "regime_h", "h", "regime_d")
+
+CSV_PATH = "vector_6.csv"
+MAX_VAR = 1
+MAX_UNIQUE = 7
+BINS = 12
+DEFAULT_EXCLUDE_COLS = ("tm_ms", "h", "feer_and_greed", "fg_stock", "feer_and_greed", "rsi_1", "sp500", "atr_1", "iv_est_1", "squize_index_1", "vix")
 DEFAULT_PROFIT_COLS = ("profit_1", "profit_2")
+
+sv.START = datetime(2022, 1, 1)
+sv.END = datetime(2025, 1, 1)
 
 # Защита от столбцов с огромной уникальностью (иначе перебор подмножеств становится нереальным)
 DEFAULT_MAX_UNIQUE = 12
@@ -491,6 +503,10 @@ def find_best_profit_rules(
     show_progress: bool = True,
     print_results: bool = True,
 
+    # NEW: по какому профиту сортировать вывод в конце
+    # None -> по второму из profit_cols (как было раньше)
+    sort_profit_col: Optional[str] = None,
+
     # Новое: включать/выключать оценку равномерности по таймлайну
     calc_timeline_uniformity: bool = False,
     timeline_bins: int = DEFAULT_TIMELINE_BINS,
@@ -514,14 +530,61 @@ def find_best_profit_rules(
 
     df = pd.read_csv(csv_path)
 
+    # -----------------------------
+    # NEW: фильтрация по периоду sv.START / sv.END (по колонке tm_ms)
+    # Логика:
+    #   - START включительно (оставляем всё, что не раньше START)
+    #   - END не включительно (оставляем всё, что строго раньше END)
+    # Если START/END не заданы (None) — фильтрации нет.
+    # -----------------------------
+    start_dt = getattr(sv, "START", None)
+    end_dt = getattr(sv, "END", None)
+
+    if (start_dt is not None) or (end_dt is not None):
+        if "tm_ms" not in df.columns:
+            raise ValueError("To filter by period you need 'tm_ms' column in CSV.")
+
+        tm_ms = pd.to_numeric(df["tm_ms"], errors="coerce")
+        if tm_ms.isna().all():
+            raise ValueError("'tm_ms' column could not be parsed as numbers.")
+
+        df = df.copy()
+        df["tm_ms"] = tm_ms.astype(np.int64, copy=False)
+
+        def _dt_to_ms(dt: datetime) -> int:
+            # Если datetime без timezone — считаем, что это UTC.
+            # Если timezone есть — приводим к UTC.
+            if dt.tzinfo is None:
+                dt_utc = dt.replace(tzinfo=timezone.utc)
+            else:
+                dt_utc = dt.astimezone(timezone.utc)
+
+            # Переводим datetime в миллисекунды с начала эпохи Unix (UTC)
+            return int(dt_utc.timestamp() * 1000)
+
+        if start_dt is not None:
+            start_ms = _dt_to_ms(start_dt)
+            df = df[df["tm_ms"] >= start_ms]
+
+        if end_dt is not None:
+            end_ms = _dt_to_ms(end_dt)
+            df = df[df["tm_ms"] < end_ms]
+
+        df = df.reset_index(drop=True)
+
     # (опционально) сортируем по tm_ms, чтобы гарантировать хронологию
     if sort_by_tm_ms and "tm_ms" in df.columns:
         # mergesort: стабильная сортировка
         df = df.sort_values("tm_ms", kind="mergesort").reset_index(drop=True)
 
+
     for pc in profit_cols:
         if pc not in df.columns:
             raise ValueError(f"Profit column '{pc}' not found in CSV.")
+    # NEW: выбираем, по какому profit сортировать финальный вывод
+    sort_pc = sort_profit_col if sort_profit_col is not None else profit_cols[1]
+    if sort_pc not in profit_cols:
+        raise ValueError(f"sort_profit_col must be one of {profit_cols}, got: {sort_pc}")
 
     feature_cols = [c for c in df.columns if c not in profit_cols and c not in exclude_cols]
     if not feature_cols:
@@ -737,16 +800,17 @@ def find_best_profit_rules(
             print("RESULTS")
             print("=" * 100)
 
-            # Печатаем, отсортировав по profit_2 (по возрастанию profit_sum)
-            sorted_col_sets = sorted(
-                col_sets,
-                key=lambda cs: (
-                    results.get(tuple(cs), {}).get(profit_cols[1]).profit_sum
-                    if results.get(tuple(cs)) and results[tuple(cs)].get(profit_cols[1]) is not None
-                    else float("inf")
-                ),
-                reverse=False,
-            )
+            # Печатаем, отсортировав по выбранной колонке sort_pc (по возрастанию profit_sum)
+            def _sort_key(cs: Tuple[str, ...]) -> float:
+                rr = results.get(tuple(cs))
+                if not rr:
+                    return float("inf")
+                br = rr.get(sort_pc)
+                if br is None:
+                    return float("inf")
+                return float(br.profit_sum)
+
+            sorted_col_sets = sorted(col_sets, key=_sort_key, reverse=False)
 
             for cols in sorted_col_sets:
                 rr = results.get(tuple(cols))
@@ -782,16 +846,17 @@ def find_best_profit_rules(
 
 def example_run() -> None:
     res = find_best_profit_rules(
-        csv_path="ch_res_3.csv",
-        max_var=3,
-        max_unique=7,
+        csv_path=CSV_PATH,
+        max_var=MAX_VAR,
+        max_unique=MAX_UNIQUE,
         min_rows=10,
         show_progress=True,
         print_results=True,
 
         # включить/выключить метрики равномерности
+        sort_profit_col="profit_2",
         calc_timeline_uniformity=True,
-        timeline_bins=10,
+        timeline_bins=BINS,
         timeline_top_frac=0.2,
         sort_by_tm_ms=True,
     )

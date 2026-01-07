@@ -20,7 +20,6 @@ from markov.hmm import load_hmm_regime_model
 from loop.dvol_features_6am import FeatureContext
 from loop.calc_comb import optimise_feature_exclusions
 
-from loop.two_stage_prod_infer import load_prod_bundle
 
 async def prep():
     #======================================
@@ -28,36 +27,37 @@ async def prep():
     #======================================
     sv.regime = 1
     sv.START=datetime(2020, 8, 1)
-    sv.END=datetime(2026, 1, 1)
+    sv.END=datetime(2027, 1, 1)
 
     
     #======================================
     #======================================
     
-    # sv.data_4h = load_data_sets(240)
+    # sv.data_4h = load_data_sets(240)conda activate env6
     sv.data_1d = load_data_sets(1440)
     sv.data_1h = load_data_sets(60)
     sv.data_30m = load_data_sets(30)
     sv.data_15m = load_data_sets(15)
     sv.data_5m = load_data_sets(5)
     
-    sv.data_dvol = util.load_csv_as_dict('/home/jupiter/PYTHON/MARKET_DATA/BTC_DVOL_3600s_20210101_20260106.csv', key_col="timestamp_ms", drop_constant_and_all_nan=True, drop_non_numeric=True)
-    sv.precalc_pic = util.load_csv_as_dict('pic_cl.csv', key_col="timestamp_ms", drop_constant_and_all_nan=True, drop_non_numeric=True)
-    sv.cls_t = util.load_csv_as_dict('cls_t.csv', key_col="timestamp_ms")
-    sv.regime_state_1 = util.load_csv_as_dict('markov/model_3_prod/artifacts/train_states.csv', key_col='ts_ms')
-    sv.regime_state_2 = util.load_csv_as_dict('markov/model_6_prod/artifacts/train_states.csv', key_col='ts_ms')
-    sv.vix_dict = util.load_csv_as_dict('/home/jupiter/PYTHON/MARKET_DATA/VIX_1h.csv', key_col='tm_ts')
-    sv.sp500_dict = util.load_csv_as_dict('/home/jupiter/PYTHON/MARKET_DATA/SP500_1h.csv', key_col='tm_ts')
-    sv.fear_greed = util.load_csv_as_dict('/home/jupiter/PYTHON/MARKET_DATA/fear_greed_1d.csv', key_col='timestamp_ms')#('/home/jupiter/PYTHON/MARKET_DATA/fear_greed_index.csv', 'timestamp_ms')
-    sv.ctx = FeatureContext(btc_1h=sv.data_1h, dvol_1h=sv.data_dvol)
+    # sv.data_dvol = util.load_csv_as_dict('/home/jupiter/PYTHON/MARKET_DATA/BTC_DVOL_3600s_20210101_20260106.csv', key_col="timestamp_ms", drop_constant_and_all_nan=True, drop_non_numeric=True)
+    # sv.precalc_pic = util.load_csv_as_dict('pic_cl.csv', key_col="timestamp_ms", drop_constant_and_all_nan=True, drop_non_numeric=True)
+    # sv.cls_t = util.load_csv_as_dict('cls_t.csv', key_col="timestamp_ms")
+    # sv.regime_state_1 = util.load_csv_as_dict('markov/model_3_prod/artifacts/train_states.csv', key_col='ts_ms')
+    # sv.regime_state_2 = util.load_csv_as_dict('markov/model_6_prod/artifacts/train_states.csv', key_col='ts_ms')
+    # sv.vix_dict = util.load_csv_as_dict('/home/jupiter/PYTHON/MARKET_DATA/VIX_1h.csv', key_col='tm_ts')
+    # sv.sp500_dict = util.load_csv_as_dict('/home/jupiter/PYTHON/MARKET_DATA/SP500_1h.csv', key_col='tm_ts')
+    sv.vector = util.load_csv_as_dict('vector.csv', key_col='tm_ms')
+    # sv.mvrv_nupl = util.load_csv_as_dict('/home/jupiter/PYTHON/MARKET_DATA/BTC_MVRV_NUPL_1d.csv', key_col='timestamp_ms')
+    # sv.fear_greed = util.load_csv_as_dict('/home/jupiter/PYTHON/MARKET_DATA/fear_greed_1d.csv', key_col='timestamp_ms')#('/home/jupiter/PYTHON/MARKET_DATA/fear_greed_index.csv', 'timestamp_ms')
+    # sv.fear_greed_stock = util.load_csv_as_dict('/home/jupiter/PYTHON/MARKET_DATA/fear_greed_index.csv', key_col='timestamp_ms')
+    # sv.ctx = FeatureContext(btc_1h=sv.data_1h, dvol_1h=sv.data_dvol)
     
     
-    sv.regime_model_1 = load_hmm_regime_model("markov/model_3_last/hmm_btc_1d.npz")
-    sv.regime_model_2 = load_hmm_regime_model("markov/model_6s3/hmm_btc_1h.npz")
-    sv.regime_model_3 = load_hmm_regime_model("markov/model_3_b4/hmm_btc_1d.npz")
-    sv.regime_model_4 = load_hmm_regime_model("markov/model_6s4/hmm_btc_1h.npz")
-    sv.bundels_models_1 = load_prod_bundle("/home/jupiter/PYTHON/T5_ALGO/_models/2026-01-02/161814/catboost_forward_wf_two_stage_best_v2/prod")#("/home/jupiter/PYTHON/T5_ALGO/_models/2025-12-29/193903/catboost_forward_wf_two_stage_best_v2/prod")
-    sv.bundels_models_2 = load_prod_bundle("/home/jupiter/PYTHON/T5_ALGO/_models/2026-01-02/161937/catboost_forward_wf_two_stage_best_v2/prod")#("/home/jupiter/PYTHON/T5_ALGO/_models/2025-12-29/193939/catboost_forward_wf_two_stage_best_v2/prod")
+    sv.regime_model_1 = load_hmm_regime_model("markov/model_3_22/hmm_btc_1d.npz")
+    sv.regime_model_2 = load_hmm_regime_model("markov/model_4h_22/hmm_btc_1h.npz")
+    # sv.bundels_models_1 = load_prod_bundle("/home/jupiter/PYTHON/T5_ALGO/_models/2026-01-02/161814/catboost_forward_wf_two_stage_best_v2/prod")#("/home/jupiter/PYTHON/T5_ALGO/_models/2025-12-29/193903/catboost_forward_wf_two_stage_best_v2/prod")
+    # sv.bundels_models_2 = load_prod_bundle("/home/jupiter/PYTHON/T5_ALGO/_models/2026-01-02/161937/catboost_forward_wf_two_stage_best_v2/prod")#("/home/jupiter/PYTHON/T5_ALGO/_models/2025-12-29/193939/catboost_forward_wf_two_stage_best_v2/prod")
 
     run(h=18, start=6)
 

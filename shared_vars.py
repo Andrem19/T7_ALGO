@@ -83,3 +83,11 @@ fear_greed = None
 fg = None
 vix = None
 sp500 = None
+mvrv_nupl = None
+mvrv = None
+nupl = None
+
+fear_greed_stock = None
+fg_stock = None
+vector = None
+regimes = {}

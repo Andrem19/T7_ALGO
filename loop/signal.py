@@ -33,60 +33,57 @@ def get_signal(i, start):
     if dow in [] or sv.hour not in [start]:
         return 0
     
-    pic = sv.precalc_pic.get(sv.data_1h[i][0], None)
     
-    if pic is None:
+    vec = sv.vector.get(sv.data_1h[i][0], None)
+    
+    if vec is None:
         return 0
     
+    # pic = sv.precalc_pic.get(sv.data_1h[i][0], None)
     
-    sv.cl_1d = pic['cl_1d']
-    sv.cl_4h = pic['cl_4h']
-    sv.cl_1h = pic['cl_1h']
-    sv.cl_15m = pic['cl_15m']
-    
-    cls_dict = sv.cls_t.get(sv.data_1h[i][0], None)
-    
-    if cls_dict is None:
-        return 0
-    
-    sv.cls_1h = cls_dict['1h']
-    sv.cls_30m = cls_dict['30m']
-    sv.cls_15m = cls_dict['15m']
-    sv.cls_5m = cls_dict['5m']
-    sv.super_cls = cls_dict['super_cls']
+    # if pic is None:
+    #     return 0
     
     
-    sv.iv_est = get_iv_26h(sv.data_1h[i-1][0], csv_path='/home/jupiter/PYTHON/MARKET_DATA/BTC_DVOL_3600s_20210101_20260106.csv')
-    if sv.iv_est is None:
-        return 0
+    sv.cl_1d = vec['cl_1d']
+    sv.cl_4h = vec['cl_4h']
+    sv.cl_1h = vec['cl_1h']
+    sv.cl_15m = vec['cl_15m']
     
-    sv.hill = 1 if sv.data_1h[i][1] * (1-0.01) > sv.data_1h[i-9][1] else 2 if sv.data_1h[i][1] * (1+0.01) < sv.data_1h[i-9][1] else 0
+    # cls_dict = sv.cls_t.get(sv.data_1h[i][0], None)
+    
+    # if cls_dict is None:
+    #     return 0
+    
+    sv.cls_1h = vec['cls_1h']
+    sv.cls_30m = vec['cls_30m']
+    sv.cls_15m = vec['cls_15m']
+    sv.cls_5m = vec['cls_5m']
+    sv.super_cls = vec['super_cls']
+    
+    
+    sv.iv_est = vec['iv_est_1']
+
+    
+    sv.hill = vec['hill']#1 if sv.data_1h[i][1] * (1-0.01) > sv.data_1h[i-9][1] else 2 if sv.data_1h[i][1] * (1+0.01) < sv.data_1h[i-9][1] else 0
     atr_raw = talib.ATR(sv.data_1h[i-60:i, 2], sv.data_1h[i-60:i, 3], sv.data_1h[i-60:i, 4], timeperiod=14)[-1]
     sv.risk_usd = atr_raw * (sv.amount/sv.data_1h[i][1])
     sv.atr = atr_raw/sv.data_1h[i][1]
-    sv.rsi = talib.RSI(sv.data_1h[i-60:i, 4], timeperiod=14)[-1]
-    sv.squeeze_index, sv.squeeze_count = plot_kc_bb_squeeze_np(sv.data_1h[i - 84:i], "test", save_image=False)
-    d_fut = quantile_classes_0_4(rsi=sv.rsi, atr=sv.atr, iv_est=sv.iv_est, squize_index=sv.squeeze_index)
+    sv.rsi = vec['rsi_1']#talib.RSI(sv.data_1h[i-60:i, 4], timeperiod=14)[-1]
+    sv.squeeze_index = vec['squize_index_1']#, sv.squeeze_count = plot_kc_bb_squeeze_np(sv.data_1h[i - 84:i], "test", save_image=False)
     
-    vix_row = util.get_at_or_before(sv.vix_dict, sv.data_1h[i][0])
-    if vix_row is not None:
-        sv.vix = vix_row['open']
-
-    sp500_row = util.get_at_or_before(sv.sp500_dict, sv.data_1h[i-1][0])
-    if sp500_row is not None:
-        sv.sp500 = util.calculate_percent_difference(sp500_row['open'], sp500_row['close'])
+    sv.vix = vec['vix']
+    sv.sp500 = vec['sp500']
+    sv.fg = vec['feer_and_greed']
+    sv.fg_stock = vec['fg_stock']
     
-    fg_row = util.get_at_or_before(sv.fear_greed, sv.data_1h[i-1][0])
-    if fg_row is None:
-        return 0
-    sv.fg = fg_row['index_value']
     # day_start = util.day_start_ts_ms_utc(int(sv.data_1h[i][0]))
     # day_index = find_candle_index(day_start, sv.data_1d)
 
     # if day_index < 180:
     #     return 0
 
-    # # ВАЖНО: добавляем +1, чтобы текущий день тоже попал в окно
+    # ВАЖНО: добавляем +1, чтобы текущий день тоже попал в окно
     # days_cand = sv.data_1d[day_index - 180 : day_index]
     # h6 = max(sv.data_1h[i-6:i, 2])
     # l6 = max(sv.data_1h[i-6:i, 3])
@@ -107,11 +104,7 @@ def get_signal(i, start):
     #     causal_probs=False,
     # )
 
-    # state_like_csv = int(res["states"][-1])   # Viterbi
-
-    
-
-    # sv.reg_d = state_like_csv# res['current_state']
+    sv.reg_d = vec['reg_d']# int(res["states"][-1])
     
     # res_2 = infer_regime_latest(
     #     sv.data_1h[i-180:i],
@@ -121,56 +114,65 @@ def get_signal(i, start):
     #     causal_probs=False,
     # )
     
-    # sv.reg_h = int(res_2["states"][-1]) 
-    # # util.print_regimes_colored(sv.reg_d, state_like_csv, sv.reg_h)
-    # dur_d = current_regime_duration(res, use_viterbi=True)
-    # dur_h = current_regime_duration(res_2, use_viterbi=True)
-    # sv.dur_d = dur_d['bars']
-    # sv.dur_h = dur_h['bars']
-    
-    
-    # #================CHECK===================
-    # ch_1 = infer_regime_latest(
-    #     full_days_cand,
-    #     sv.regime_model_3,
-    #     lookback_days=180,
-    #     return_history=True,
-    #     causal_probs=False,
-    # )
-    
-    # sv.ch_1d = int(ch_1["states"][-1])
+    sv.reg_h = vec['reg_h']#int(res_2["states"][-1]) 
 
+    # vars_1 = {
+    #     'fg': sv.fg,
+    #     'dow': dow,
+    #     'atr': vec['atr'],
+    #     'iv_est': sv.iv_est,
+    #     'rsi': sv.rsi,
+    #     'hill': sv.hill,
+    #     'cl_4h': sv.cl_4h
+    # }
+    
+    # rules_1 = {
+    #     'dow': [0,1,2,4,6],
+    #     'atr': [0,3,4],
+    #     'iv_est': '>0.33',
+    #     'rsi': '>31',
+    #     'fg': '>17'
+    # }
+    
+    # rules_2 = {
+    #     'dow': [1,3,4],
+    #     'atr': [1,2],
+    #     'hill': [0,2],
+    #     'cl_4h': [1,2,3,4],
+    #     'rsi': '<76',
+    # }
+    
     vars_1 = {
+        'reg_h': sv.reg_h,
+        'cl_15m': sv.cl_15m,
         'fg': sv.fg,
         'dow': dow,
-        'atr': d_fut['atr'],
-        'iv_est': sv.iv_est,
+        'atr': vec['atr'],
+        'iv_est': vec['iv_est'],
         'rsi': sv.rsi,
         'hill': sv.hill,
-        'cl_4h': sv.cl_4h
+        'cl_4h': sv.cl_4h,
+        'cl_1h': sv.cl_1h,
+        'squize_index': vec['squize_index'],
+        'd': sv.dow
     }
     
     rules_1 = {
-        'dow': [0,1,2,4,6],
-        'atr': [0,3,4],
-        'iv_est': '>0.33',
-        'rsi': '>31',
-        'fg': '>17'
+        'cl_1h': [0, 1, 2],
+        'iv_est': [3, 4],
+        'squize_index': [2]
     }
-    
     rules_2 = {
-        'dow': [1,3,4],
-        'atr': [1,2],
-        'hill': [0,2],
-        'cl_4h': [1,2,3,4],
-        'rsi': '<76',
+        'cl_1h': [1],
+        'iv_est': [3,4],
+        'squize_index': [1,3,4]
     }
     
     long, short, exp = calc_long_short_v4(vars_1=vars_1, rules_1=rules_1, rules_2=rules_2)
 
-    if short:
+    if short and not long:
         return 2
-    if long:
+    if long and not short:
         return 1
 
     return 0

@@ -764,7 +764,7 @@ def example_run() -> None:
         "d": [0, 1, 2, 4, 6],
         "atr": [0, 3, 4],
         "iv_est": ">0.33",
-        "rsi": ">31",
+        "rsi_1": ">31",
     }
 
     rules_2 = {
@@ -772,14 +772,14 @@ def example_run() -> None:
         "atr": [1, 2],
         "hill": [0, 2],
         "cl_4h": [1, 2, 3, 4],
-        "rsi": "<76",
+        "rsi_1": "<76",
     }
 
     evaluate_rules_portability_timeline(
-        csv_path="ch_res_3.csv",
+        csv_path="vector.csv",
         data_1d=sv.data_1d,
-        rules=rules_2,
-        profit_col="profit_2",
+        rules=rules_1,
+        profit_col="profit_1",
         bins=24,
         bin_mode="time",
         sort_by_tm_ms=True,

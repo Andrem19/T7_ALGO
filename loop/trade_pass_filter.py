@@ -240,6 +240,7 @@ def calc_long_short_v4(
     rules_1: dict,
     rules_2: dict
 ) -> Tuple[bool, bool, str]:
+    # print(f'{vars_1}\n{rules_1}\n{rules_2}')
     try:
         long_fail: List[str] = []
         short_fail: List[str] = []

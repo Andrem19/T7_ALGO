@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 import re
 
-
+from datetime import datetime
 from typing import Any, Dict, Optional, Tuple
 import csv
 import os
@@ -776,3 +776,40 @@ def get_at_or_before(ts_map: Mapping[int, T], ts_ms: int, default: Optional[T] =
     if i < 0:
         return default
     return vals[i]
+
+
+def find_index(timestamp, data):
+
+    for i in range(len(data)):
+        if data[i][0] > timestamp:
+            if i > 0:
+                return i - 1
+            else:
+                print(datetime.fromtimestamp(int(timestamp/1000)))
+                return None
+
+    return len(data) - 1
+
+
+def get_time_segment(start_timestamp, end_timestamp, data):
+    result = []
+    for sublist in data:
+        timestamp = sublist[0]
+        if start_timestamp <= timestamp < end_timestamp:
+            result.append(sublist)
+    return np.array(result)
+
+def combine_last_candle(start_timestamp, end_timestamp, dt):
+    data = get_time_segment(start_timestamp, end_timestamp, dt)
+    if len(data) < 2:
+        return None
+
+    close = data[-1][4]
+    highs = data[:, 2]
+    lows = data[:, 3]
+    open = data[0][1]
+
+    high = np.max(highs)
+    low = np.min(lows)
+
+    return [data[0][0], open, high, low, close, 999]

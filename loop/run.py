@@ -7,10 +7,10 @@ from helpers.util import find_candle_index
 import helpers.util as util
 from helpers.mprint import row
 
-PATH_TRAIN_DATA = 'ch_res_2.csv'
+PATH_TRAIN_DATA = 'vector.csv'
 def run(h: int, start: int):
     data_len = len(sv.data_1h)-48
-    i = 2000
+    i = 800
     while i < data_len:
         
         signal = get_signal(i, start)
@@ -29,12 +29,17 @@ def run(h: int, start: int):
             
             # save_dict = {
             #     'tm_ms': sv.timestamp,
-            #     'ch_1d': sv.ch_1d,
+            #     'feer_and_greed': sv.fg,
+            #     'fg_stock': sv.fg_stock,
+            #     'sp500': sv.sp500,
+            #     'vix': sv.vix,
+            #     'rsi_1': float(sv.rsi),
+            #     'atr_1': float(sv.atr),
+            #     'iv_est_1': float(sv.iv_est),
+            #     'squize_index_1': float(sv.squeeze_index),
             #     'hill': sv.hill,
-            #     'regime_h': sv.reg_h,
-            #     'regime_d': sv.reg_d,
-            #     'dur_d': sv.dur_d,
-            #     'dur_h': sv.dur_h,
+            #     'reg_d': sv.reg_d,
+            #     'reg_h': sv.reg_h,
             #     'd': sv.dow,
             #     'h': sv.hour,
             #     'cls_1h': int(sv.cls_1h),
@@ -49,8 +54,8 @@ def run(h: int, start: int):
             #     'profit_1': result_1['profit'],
             #     'profit_2': result_2['profit']
             # }
-            # save_dict.update(quantile_classes_0_4(rsi=sv.rsi, atr=sv.atr, iv_est=sv.iv_est, squize_index=sv.squeeze_index)
-            # util.append_dict_to_csv(row, PATH_TRAIN_DATA)
+            # save_dict.update(quantile_classes_0_4(rsi=sv.rsi, atr=sv.atr, iv_est=sv.iv_est, squize_index=sv.squeeze_index))
+            # util.append_dict_to_csv(save_dict, PATH_TRAIN_DATA)
             i+=(result_1['duration_min']//60)+1
         else:
             i+=1

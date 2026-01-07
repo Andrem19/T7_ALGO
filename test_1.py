@@ -5,13 +5,13 @@ import numpy as np
 
 np.set_printoptions(precision=6, suppress=True)
 
-n_states = 3
+n_states = 4
 art = train_hmm_regime_model(
-    csv_path="/home/jupiter/PYTHON/MARKET_DATA/_crypto_data/BTCUSDT/BTCUSDT_1d.csv",
-    model_path=f"markov/model_{n_states}_b4/hmm_btc_1d.npz",
-    out_dir=f"markov/model_{n_states}_b4/artifacts",
-    start="2022-6-01",
-    end="2024-1-01",          # например исключить 2025
+    csv_path="/home/jupiter/PYTHON/MARKET_DATA/_crypto_data/BTCUSDT/BTCUSDT_1h.csv",
+    model_path=f"markov/model_{n_states}h_22/hmm_btc_1h.npz",
+    out_dir=f"markov/model_{n_states}h_22/artifacts",
+    start="2020-1-01",
+    end="2022-1-01",          # например исключить 2025
     n_states=n_states,
     n_iter=250
 )
