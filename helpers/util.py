@@ -1,7 +1,8 @@
-
-
 from __future__ import annotations
 
+
+from bisect import bisect_right
+from typing import Mapping, TypeVar, Optional
 import bisect
 import csv
 from dataclasses import dataclass
@@ -732,3 +733,46 @@ def print_regimes_colored(
     print(f"{s1}{sep}{s2}{sep}{s3}", end=end)
 
 
+
+
+T = TypeVar("T")
+
+
+def get_at_or_before(ts_map: Mapping[int, T], ts_ms: int, default: Optional[T] = None, *, rebuild: bool = False) -> Optional[T]:
+    """
+    Вернёт значение по точному ts_ms, а если такого ключа нет — значение по ближайшему
+    ключу строго ДО ts_ms (последнее доступное "на тот момент").
+
+    Оптимизация для цикла:
+    - внутри держит кеш: один раз сортирует ключи и хранит параллельный список значений
+    - поиск дальше делается через bisect (очень быстро)
+
+    Важно:
+    - если словарь только ДОБАВЛЯЕТСЯ (append-only), кеш сам пересоберётся при изменении len(ts_map)
+    - если вы ПЕРЕЗАПИСЫВАЕТЕ существующие значения без изменения длины — передайте rebuild=True один раз
+    """
+    cache = getattr(get_at_or_before, "_cache", None)
+    if cache is None:
+        cache = get_at_or_before._cache = {}
+
+    # чтобы кеш не рос бесконечно, если вдруг будут разные словари
+    if len(cache) > 8:
+        cache.clear()
+
+    d_id = id(ts_map)
+    entry = cache.get(d_id)
+
+    if rebuild or entry is None or entry["n"] != len(ts_map):
+        items = sorted(((int(k), v) for k, v in ts_map.items()), key=lambda kv: kv[0])
+        keys = [k for k, _ in items]
+        vals = [v for _, v in items]
+        entry = {"n": len(ts_map), "keys": keys, "vals": vals}
+        cache[d_id] = entry
+
+    keys = entry["keys"]
+    vals = entry["vals"]
+
+    i = bisect_right(keys, int(ts_ms)) - 1
+    if i < 0:
+        return default
+    return vals[i]

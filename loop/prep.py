@@ -28,7 +28,7 @@ async def prep():
     #======================================
     sv.regime = 1
     sv.START=datetime(2020, 8, 1)
-    sv.END=datetime(2027, 1, 1)
+    sv.END=datetime(2026, 1, 1)
 
     
     #======================================
@@ -46,6 +46,9 @@ async def prep():
     sv.cls_t = util.load_csv_as_dict('cls_t.csv', key_col="timestamp_ms")
     sv.regime_state_1 = util.load_csv_as_dict('markov/model_3_prod/artifacts/train_states.csv', key_col='ts_ms')
     sv.regime_state_2 = util.load_csv_as_dict('markov/model_6_prod/artifacts/train_states.csv', key_col='ts_ms')
+    sv.vix_dict = util.load_csv_as_dict('/home/jupiter/PYTHON/MARKET_DATA/VIX_1h.csv', key_col='tm_ts')
+    sv.sp500_dict = util.load_csv_as_dict('/home/jupiter/PYTHON/MARKET_DATA/SP500_1h.csv', key_col='tm_ts')
+    sv.fear_greed = util.load_csv_as_dict('/home/jupiter/PYTHON/MARKET_DATA/fear_greed_1d.csv', key_col='timestamp_ms')#('/home/jupiter/PYTHON/MARKET_DATA/fear_greed_index.csv', 'timestamp_ms')
     sv.ctx = FeatureContext(btc_1h=sv.data_1h, dvol_1h=sv.data_dvol)
     
     

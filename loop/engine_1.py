@@ -85,6 +85,9 @@ def engine_1(h, i, gen_ind, signal):
         'profit': fut_profit,
         'fee': fee_fut,
         'features': {
+            'feer_and_greed': sv.fg,
+            'sp500': sv.sp500,
+            'vix': sv.vix,
             'hill': sv.hill,
             'rsi': float(sv.rsi),
             'atr': float(sv.atr),

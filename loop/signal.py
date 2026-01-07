@@ -68,6 +68,18 @@ def get_signal(i, start):
     sv.squeeze_index, sv.squeeze_count = plot_kc_bb_squeeze_np(sv.data_1h[i - 84:i], "test", save_image=False)
     d_fut = quantile_classes_0_4(rsi=sv.rsi, atr=sv.atr, iv_est=sv.iv_est, squize_index=sv.squeeze_index)
     
+    vix_row = util.get_at_or_before(sv.vix_dict, sv.data_1h[i][0])
+    if vix_row is not None:
+        sv.vix = vix_row['open']
+
+    sp500_row = util.get_at_or_before(sv.sp500_dict, sv.data_1h[i-1][0])
+    if sp500_row is not None:
+        sv.sp500 = util.calculate_percent_difference(sp500_row['open'], sp500_row['close'])
+    
+    fg_row = util.get_at_or_before(sv.fear_greed, sv.data_1h[i-1][0])
+    if fg_row is None:
+        return 0
+    sv.fg = fg_row['index_value']
     # day_start = util.day_start_ts_ms_utc(int(sv.data_1h[i][0]))
     # day_index = find_candle_index(day_start, sv.data_1d)
 
@@ -129,6 +141,7 @@ def get_signal(i, start):
     # sv.ch_1d = int(ch_1["states"][-1])
 
     vars_1 = {
+        'fg': sv.fg,
         'dow': dow,
         'atr': d_fut['atr'],
         'iv_est': sv.iv_est,
@@ -141,7 +154,8 @@ def get_signal(i, start):
         'dow': [0,1,2,4,6],
         'atr': [0,3,4],
         'iv_est': '>0.33',
-        'rsi': '>31'
+        'rsi': '>31',
+        'fg': '>17'
     }
     
     rules_2 = {

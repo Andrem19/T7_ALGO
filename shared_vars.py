@@ -76,3 +76,10 @@ timestamp = None
 ch_res = None
 hist_pos = None
 dt = None
+
+vix_dict = None
+sp500_dict = None
+fear_greed = None
+fg = None
+vix = None
+sp500 = None
