@@ -7,8 +7,8 @@ from helpers.util import find_candle_index
 import helpers.util as util
 from helpers.mprint import row
 
-PATH_TRAIN_DATA = 'vector.csv'
-def run(h: int, start: int):
+PATH_TRAIN_DATA = 'short_vector.csv'
+def run(start: int):
     data_len = len(sv.data_1h)-48
     i = 800
     while i < data_len:
@@ -17,8 +17,8 @@ def run(h: int, start: int):
         
         if signal !=0:
             index_5m = find_candle_index(sv.data_1h[i][0], sv.data_5m)
-            result_1 = engine_1(h, index_5m, i, signal)
-            # result_2 = engine_1(h, index_5m, i, 2)
+            result_1 = engine_1(sv.duration, index_5m, i, signal)
+            # result_2 = engine_1(sv.duration index_5m, i, 2)
 
             sv.positions_list.append(result_1)
             sv.summa += result_1['profit']

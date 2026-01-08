@@ -761,25 +761,25 @@ def example_run() -> None:
     sv.data_1d = load_data_sets(1440)
 
     rules_1 = {
-        "d": [0, 1, 2, 4, 6],
-        "atr": [0, 3, 4],
-        "iv_est": ">0.33",
-        "rsi_1": ">31",
+        'hill': [1],
+        'cl_15m': [1,2],
+        'rsi': [0, 1, 2, 4]
+        # 'iv_est': [3, 4],
+        # 'squize_index': [2]
     }
 
     rules_2 = {
-        "d": [1, 3, 4],
-        "atr": [1, 2],
-        "hill": [0, 2],
-        "cl_4h": [1, 2, 3, 4],
-        "rsi_1": "<76",
+        'hill': [2],
+        'rsi': [0,2],
+        'atr': [0,1]
+        # 'iv_est': [3,4],
+        # 'squize_index': [1,3,4]
     }
-
     evaluate_rules_portability_timeline(
         csv_path="vector.csv",
         data_1d=sv.data_1d,
-        rules=rules_1,
-        profit_col="profit_1",
+        rules=rules_2,
+        profit_col="profit_2",
         bins=24,
         bin_mode="time",
         sort_by_tm_ms=True,

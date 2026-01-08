@@ -96,7 +96,7 @@ def engine_1(h, i, gen_ind, signal):
             'regime_h': sv.reg_h,
             'regime_d': sv.reg_d,
             'd': sv.dow,
-            # 'h': sv.hour,
+            'h': sv.hour,
             # 'cl_1d': int(sv.cl_1d),
             # 'cl_4h': int(sv.cl_4h),
             # 'cl_1h': int(sv.cl_1h),

@@ -30,7 +30,7 @@ def get_signal(i, start):
     sv.hour = sv.dt.hour
     sv.dow = dow
     
-    if dow in [] or sv.hour not in [start]:
+    if dow in []:# or sv.hour not in [start]:
         return 0
     
     
@@ -115,65 +115,122 @@ def get_signal(i, start):
     # )
     
     sv.reg_h = vec['reg_h']#int(res_2["states"][-1]) 
-
-    # vars_1 = {
-    #     'fg': sv.fg,
-    #     'dow': dow,
-    #     'atr': vec['atr'],
-    #     'iv_est': sv.iv_est,
-    #     'rsi': sv.rsi,
-    #     'hill': sv.hill,
-    #     'cl_4h': sv.cl_4h
-    # }
-    
-    # rules_1 = {
-    #     'dow': [0,1,2,4,6],
-    #     'atr': [0,3,4],
-    #     'iv_est': '>0.33',
-    #     'rsi': '>31',
-    #     'fg': '>17'
-    # }
-    
-    # rules_2 = {
-    #     'dow': [1,3,4],
-    #     'atr': [1,2],
-    #     'hill': [0,2],
-    #     'cl_4h': [1,2,3,4],
-    #     'rsi': '<76',
-    # }
     
     vars_1 = {
-        'reg_h': sv.reg_h,
-        'cl_15m': sv.cl_15m,
-        'fg': sv.fg,
-        'dow': dow,
+        'feer_and_greed': sv.fg,
+        'fg_stock': sv.fg_stock,
+        'sp500': sv.sp500,
+        'vix': sv.vix,
+        'rsi_1': float(sv.rsi),
+        'atr_1': float(sv.atr),
+        'iv_est_1': float(sv.iv_est),
+        'rsi': vec['rsi'],
         'atr': vec['atr'],
         'iv_est': vec['iv_est'],
-        'rsi': sv.rsi,
-        'hill': sv.hill,
-        'cl_4h': sv.cl_4h,
-        'cl_1h': sv.cl_1h,
         'squize_index': vec['squize_index'],
-        'd': sv.dow
+        'squize_index_1': float(sv.squeeze_index),
+        'hill': sv.hill,
+        'reg_d': sv.reg_d,
+        'reg_h': sv.reg_h,
+        'd': sv.dow,
+        'h': sv.hour,
+        'cls_1h': int(sv.cls_1h),
+        'cls_30m': int(sv.cls_30m),
+        'cls_15m': int(sv.cls_15m),
+        'cls_5m': int(sv.cls_5m),
+        'super_cls': int(sv.super_cls),
+        'cl_1d': int(sv.cl_1d),
+        'cl_4h': int(sv.cl_4h),
+        'cl_1h': int(sv.cl_1h),
+        'cl_15m': int(sv.cl_15m),
     }
     
     rules_1 = {
-        'cl_1h': [0, 1, 2],
-        'iv_est': [3, 4],
-        'squize_index': [2]
+        'd': [0,1,2,4,6],
+        'atr': [0,3,4],
+        'iv_est_1': '>0.33',
+        'rsi_1': '>31',
+        'feer_and_greed': '>17'
     }
+    
     rules_2 = {
-        'cl_1h': [1],
-        'iv_est': [3,4],
-        'squize_index': [1,3,4]
+        'd': [1,3,4],
+        'atr': [1,2],
+        'hill': [0,2],
+        'cl_4h': [1,2,3,4],
+        'rsi_1': '<76',
+    }
+    long, short, exp = calc_long_short_v4(vars_1=vars_1, rules_1=rules_1, rules_2=rules_2)
+
+    if short and sv.hour == 6:
+        sv.duration = 18
+        return 2
+    if long and sv.hour == 6:
+        sv.duration = 18
+        return 1
+    
+    # rules_1 = {
+    #     'd': [0,1],
+    #     'cl_4h': [3],
+    #     # 'iv_est': [3, 4],
+    #     # 'squize_index': [2]
+    # }
+
+    # rules_2 = {
+    #     'cl_1d': [1,2],
+    #     'cl_4h': [2],
+    #     # 'iv_est': [3,4],
+    #     # 'squize_index': [1,3,4]
+    # }
+    rules_1 = {
+        'squize_index': [4],
+        'cl_4h': [0],
+        'reg_h': [3]
+        # 'iv_est': [3, 4],
+        # 'squize_index': [2]
+    }
+
+    rules_2 = {
+        'cl_1d': [2],
+        'cl_4h': [1,2],
+        # 'iv_est': [3,4],
+        # 'squize_index': [1,3,4]
+    }
+    long, short, exp = calc_long_short_v4(vars_1=vars_1, rules_1=rules_1, rules_2=rules_2)
+    
+    if short and sv.dow not in [2]:
+        sv.duration = 6
+        return 2
+    if long and sv.dow not in [3]:
+        sv.duration = 6
+        return 1
+    
+    rules_1 = {
+        'hill': [1],
+        'cl_15m': [1,2],
+        'rsi': [0, 1, 2, 4]
+        # 'iv_est': [3, 4],
+        # 'squize_index': [2]
+    }
+
+    rules_2 = {
+        'hill': [2],
+        'rsi': [0,2],
+        'atr': [0,1]
+        # 'iv_est': [3,4],
+        # 'squize_index': [1,3,4]
     }
     
     long, short, exp = calc_long_short_v4(vars_1=vars_1, rules_1=rules_1, rules_2=rules_2)
 
-    if short and not long:
+    if short and sv.dow not in [2]:
+        sv.duration = 18
         return 2
-    if long and not short:
+    if long:# and sv.dow not in [1,4,5]:
+        sv.duration = 18
         return 1
+    
+
 
     return 0
 

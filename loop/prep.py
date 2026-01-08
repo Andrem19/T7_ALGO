@@ -58,8 +58,8 @@ async def prep():
     sv.regime_model_2 = load_hmm_regime_model("markov/model_4h_22/hmm_btc_1h.npz")
     # sv.bundels_models_1 = load_prod_bundle("/home/jupiter/PYTHON/T5_ALGO/_models/2026-01-02/161814/catboost_forward_wf_two_stage_best_v2/prod")#("/home/jupiter/PYTHON/T5_ALGO/_models/2025-12-29/193903/catboost_forward_wf_two_stage_best_v2/prod")
     # sv.bundels_models_2 = load_prod_bundle("/home/jupiter/PYTHON/T5_ALGO/_models/2026-01-02/161937/catboost_forward_wf_two_stage_best_v2/prod")#("/home/jupiter/PYTHON/T5_ALGO/_models/2025-12-29/193939/catboost_forward_wf_two_stage_best_v2/prod")
-
-    run(h=18, start=6)
+    sv.duration = 6
+    run(start=6)
 
     # res = find_best_exclusion_combos(
     #     sv.positions_list,

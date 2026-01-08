@@ -17,7 +17,6 @@ import pandas as pd
 import shared_vars as sv
 _HEAP_SEQ = itertools.count()
 
-
 # ======================================================================
 # НАСТРОЙКИ (крутите тут)
 # ======================================================================
@@ -25,10 +24,10 @@ _HEAP_SEQ = itertools.count()
 CSV_PATH = "vector.csv"
 
 # Сколько признаков в правиле: 1, 2 или 3 (3 может быть очень тяжело по времени)
-MAX_VAR = 2
+MAX_VAR = 3
 
 # Максимальная уникальность столбца, чтобы столбец попадал в перебор
-MAX_UNIQUE = 24
+MAX_UNIQUE = 7
 
 # Сколько тайм-бинов для стабильности и просадки (больше = точнее, но тяжелее)
 BINS = 12
@@ -36,7 +35,7 @@ BINS = 12
 # Какие столбцы нельзя использовать как признаки
 DEFAULT_EXCLUDE_COLS = (
     "tm_ms",
-    "feer_and_greed", "fg_stock", "feer_and_greed", "cls_15m", "cls_5m", "cls_30m", "cls_1h", "super_cls"
+    "feer_and_greed", "fg_stock", "feer_and_greed", "cls_15m", "cls_5m", "cls_30m", "cls_1h", "super_cls",
     "rsi_1", "sp500", "atr_1", "iv_est_1", "squize_index_1", "vix",
 )
 
@@ -51,7 +50,7 @@ sv.END = datetime(2025, 1, 1)
 # -----------------------------
 # Ограничения / фильтры
 # -----------------------------
-DEFAULT_MIN_ROWS = 50
+DEFAULT_MIN_ROWS = 300
 
 # Не позволять правилу “захватить почти всё”:
 # если в каком-то признаке выбрано слишком много значений — правило отбрасывается
@@ -252,11 +251,19 @@ def _popcount(x: int) -> int:
 
 
 def _mask_to_values(mask: int, uniques: Sequence[Any]) -> Tuple[Any, ...]:
+    """
+    Быстро достаём значения по установленным битам маски.
+    Идём только по включённым битам (а не по всем uniques).
+    """
     vals: List[Any] = []
-    for i in range(len(uniques)):
-        if (mask >> i) & 1:
-            vals.append(uniques[i])
+    m = int(mask)
+    while m:
+        lsb = m & -m
+        bit = int(lsb.bit_length() - 1)
+        vals.append(uniques[bit])
+        m ^= lsb
     return tuple(vals)
+
 
 
 def _rule_text(rule_values: Dict[str, Tuple[Any, ...]]) -> str:
@@ -343,20 +350,23 @@ def _calc_evenness_and_topshare(abs_bin_profit: np.ndarray, top_frac: float) -> 
 def _calc_drawdown_from_bins(bin_profit: np.ndarray) -> float:
     """
     Просадка по бинам:
-    строим кумулятивную прибыль по бинам, держим максимум (пик),
-    и считаем наихудшее падение от пика до последующего значения.
+    идём по бинам, накапливаем кумулятив, держим пик и считаем худшее падение от пика.
     """
     peak = 0.0
     cur = 0.0
     max_dd = 0.0
-    for x in bin_profit.tolist():
+
+    arr = np.asarray(bin_profit, dtype=np.float64).ravel()
+    for x in arr:
         cur += float(x)
         if cur > peak:
             peak = cur
         dd = peak - cur
         if dd > max_dd:
             max_dd = dd
+
     return float(max_dd)
+
 
 
 def _calc_stability(
@@ -401,6 +411,72 @@ def _calc_stability(
 
     return score, coverage, evenness, top_share, pos_bins, neg_bins
 
+STAB_SCORE_MIN = -1.0
+STAB_SCORE_MAX = 1.5
+
+
+def _score_upper_bound(
+    *,
+    profit_mean: float,
+    winrate: float,
+    n_rows: int,
+    n_total_rows: int,
+    complexity: float,
+    obj: Dict[str, float],
+) -> float:
+    """
+    Строго безопасная верхняя граница score для кандидата.
+
+    Идея: берем реальный вклад mean/winrate/rows/complexity,
+    а для стабильности и просадки подставляем наилучшие теоретически возможные значения.
+
+    Это дает ОПТИМИСТИЧНЫЙ score. Если даже он <= текущего порога TOP-K,
+    кандидата можно пропускать без потери правильности.
+    """
+    mean_scale = float(obj.get("mean_scale", 1.0))
+    mean_norm = float(profit_mean / mean_scale) if mean_scale != 0 else float(profit_mean)
+
+    # rows_bonus в диапазоне 0..1
+    if n_total_rows > 0:
+        rows_bonus = float(math.log1p(n_rows) / math.log1p(n_total_rows))
+    else:
+        rows_bonus = 0.0
+
+    # complexity_bonus в диапазоне 0..1 (меньше complexity -> больше бонус)
+    c = float(max(0.0, min(1.0, complexity)))
+    complexity_bonus = float(1.0 - c)
+
+    w_mean = float(obj.get("w_mean", 0.0))
+    w_win = float(obj.get("w_winrate", 0.0))
+    w_stab = float(obj.get("w_stability", 0.0))
+    w_dd = float(obj.get("w_drawdown", 0.0))
+    w_rows = float(obj.get("w_rows", 0.0))
+    w_cmp = float(obj.get("w_complexity", 0.0))
+
+    # Для stability берём лучший возможный край, зависящий от знака веса.
+    stab_best = STAB_SCORE_MAX if w_stab >= 0.0 else STAB_SCORE_MIN
+
+    # Для drawdown term:
+    # score содержит "- w_drawdown * dd_rel".
+    # Если w_drawdown >= 0, то лучший случай dd_rel = 0.
+    # Если w_drawdown < 0, то dd_rel "улучшает" score и верхняя граница становится неограниченной.
+    # В таком случае prune по dd делать нельзя -> просто не используем dd в bound (делаем bound очень большим).
+    if w_dd >= 0.0:
+        dd_best_term = 0.0  # dd_rel=0
+        dd_part = -w_dd * dd_best_term
+    else:
+        # Нельзя безопасно ограничить сверху вклад dd -> отключаем prune по bound (возвращаем +inf).
+        return float("inf")
+
+    ub = (
+        w_mean * mean_norm
+        + w_win * float(winrate)
+        + w_stab * float(stab_best)
+        + dd_part
+        + w_rows * rows_bonus
+        + w_cmp * complexity_bonus
+    )
+    return float(ub)
 
 def _score_candidate(
     *,
@@ -412,43 +488,54 @@ def _score_candidate(
     n_total_rows: int,
     complexity: float,
     obj: Dict[str, float],
+    # новое (необязательное): ускорение log1p
+    log1p_table: Optional[np.ndarray] = None,
+    log1p_total: Optional[float] = None,
 ) -> float:
     mean_scale = float(obj.get("mean_scale", 1.0))
     mean_norm = float(profit_mean / mean_scale) if mean_scale != 0 else float(profit_mean)
 
-    # Бонус за количество строк: чем ближе к общему объёму, тем выше бонус
-    # (но это только слабый вес)
+    # rows_bonus: логарифм от (один плюс количество строк) делим на логарифм от (один плюс весь объём)
     if n_total_rows > 0:
-        rows_bonus = float(math.log1p(n_rows) / math.log1p(n_total_rows))
+        if (
+            log1p_table is not None
+            and log1p_total is not None
+            and 0 <= int(n_rows) < int(len(log1p_table))
+            and float(log1p_total) > 0.0
+        ):
+            rows_bonus = float(log1p_table[int(n_rows)]) / float(log1p_total)
+        else:
+            rows_bonus = float(math.log1p(int(n_rows)) / math.log1p(int(n_total_rows)))
     else:
         rows_bonus = 0.0
 
     # Complexity: это доля выбранных значений (0..1). Меньше — лучше.
-    complexity_bonus = float(1.0 - max(0.0, min(1.0, complexity)))
+    c = float(max(0.0, min(1.0, float(complexity))))
+    complexity_bonus = float(1.0 - c)
 
     score = (
         float(obj.get("w_mean", 0.0)) * mean_norm
         + float(obj.get("w_winrate", 0.0)) * float(winrate)
         + float(obj.get("w_stability", 0.0)) * float(stability_score)
         - float(obj.get("w_drawdown", 0.0)) * float(dd_rel)
-        + float(obj.get("w_rows", 0.0)) * rows_bonus
-        + float(obj.get("w_complexity", 0.0)) * complexity_bonus
+        + float(obj.get("w_rows", 0.0)) * float(rows_bonus)
+        + float(obj.get("w_complexity", 0.0)) * float(complexity_bonus)
     )
     return float(score)
+
 
 
 def _calc_exact_drawdown_on_rows(profit: np.ndarray, include_mask: np.ndarray) -> float:
     """
     Точная просадка на уровне сделок (строк).
-    Идём по строкам в хронологическом порядке, учитываем только выбранные сделки,
-    считаем худшее падение от пика к последующему значению.
+    Идём по выбранным сделкам в хронологическом порядке и считаем худшее падение от локального пика.
     """
     peak = 0.0
     cur = 0.0
     max_dd = 0.0
 
     p = profit[include_mask]
-    for x in p.tolist():
+    for x in p:
         cur += float(x)
         if cur > peak:
             peak = cur
@@ -459,9 +546,287 @@ def _calc_exact_drawdown_on_rows(profit: np.ndarray, include_mask: np.ndarray) -
     return float(max_dd)
 
 
+
 # ======================================================================
 # ПРЕДВЫЧИСЛЕНИЯ ДЛЯ ПЕРЕБОРА МАСОК
 # ======================================================================
+# ----------------------------------------------------------------------
+# FAST stability + drawdown in one pass (optionally with Numba)
+# ----------------------------------------------------------------------
+
+try:
+    from numba import njit  # type: ignore
+    _HAVE_NUMBA = True
+except Exception:
+    _HAVE_NUMBA = False
+
+
+def _top_k_bins_count(bins: int, top_frac: float) -> int:
+    return int(max(1, math.ceil(int(bins) * float(top_frac))))
+
+
+def _clamp_stab(score: float) -> float:
+    if score < -1.0:
+        return -1.0
+    if score > 1.5:
+        return 1.5
+    return float(score)
+
+
+def _stability_dd_py(
+    bin_profit: np.ndarray,
+    bin_count: np.ndarray,
+    top_k_bins: int,
+    w_cov: float,
+    w_even: float,
+    w_pos: float,
+    w_top: float,
+    w_neg: float,
+) -> Tuple[float, float, float, float, int, int, float]:
+    bp = np.asarray(bin_profit, dtype=np.float64).ravel()
+    bc = np.asarray(bin_count, dtype=np.int64).ravel()
+
+    n_bins = int(bp.shape[0])
+
+    # coverage / pos_bins / neg_bins
+    bins_hit = 0
+    pos_bins = 0
+    neg_bins = 0
+
+    # drawdown
+    peak = 0.0
+    cur = 0.0
+    max_dd = 0.0
+
+    # abs-profit aggregates for evenness/top_share
+    abs_vals = np.empty(n_bins, dtype=np.float64)
+    total_abs = 0.0
+    nz_cnt = 0
+
+    for i in range(n_bins):
+        c = int(bc[i])
+        x = float(bp[i])
+
+        if c > 0:
+            bins_hit += 1
+            if x > 0.0:
+                pos_bins += 1
+            elif x < 0.0:
+                neg_bins += 1
+
+        cur += x
+        if cur > peak:
+            peak = cur
+        dd = peak - cur
+        if dd > max_dd:
+            max_dd = dd
+
+        ax = x if x >= 0.0 else -x
+        abs_vals[i] = ax
+        total_abs += ax
+        if ax > 0.0:
+            nz_cnt += 1
+
+    coverage = float(bins_hit / n_bins) if n_bins > 0 else 0.0
+    denom = bins_hit if bins_hit > 0 else 1
+    pos_frac = float(pos_bins / denom)
+    neg_frac = float(neg_bins / denom)
+
+    # top_share
+    if total_abs <= 0.0:
+        top_share = 0.0
+        evenness = 0.0
+    else:
+        # top_share через partition (быстро)
+        k = int(top_k_bins)
+        if k >= n_bins:
+            top_sum = float(total_abs)
+        else:
+            part = np.partition(abs_vals, n_bins - k)
+            top_sum = float(part[n_bins - k :].sum())
+        top_share = float(top_sum / total_abs)
+
+        # evenness = энтропия по ненулевым |profit|
+        if nz_cnt <= 1:
+            evenness = 1.0
+        else:
+            ent = 0.0
+            for i in range(n_bins):
+                ax = float(abs_vals[i])
+                if ax > 0.0:
+                    p = ax / total_abs
+                    ent -= p * math.log(p)
+            ent_max = math.log(float(nz_cnt))
+            evenness = float(ent / ent_max) if ent_max > 0.0 else 0.0
+
+    stab = (
+        float(w_cov) * float(coverage)
+        + float(w_even) * float(evenness)
+        + float(w_pos) * float(pos_frac)
+        - float(w_top) * float(top_share)
+        - float(w_neg) * float(neg_frac)
+    )
+    stab = _clamp_stab(stab)
+
+    return float(stab), float(coverage), float(evenness), float(top_share), int(pos_bins), int(neg_bins), float(max_dd)
+
+
+if _HAVE_NUMBA:
+    @njit(cache=True)
+    def _stability_dd_numba(
+        bp: np.ndarray,
+        bc: np.ndarray,
+        top_k_bins: int,
+        w_cov: float,
+        w_even: float,
+        w_pos: float,
+        w_top: float,
+        w_neg: float,
+    ) -> Tuple[float, float, float, float, int, int, float]:
+        n_bins = bp.shape[0]
+
+        bins_hit = 0
+        pos_bins = 0
+        neg_bins = 0
+
+        peak = 0.0
+        cur = 0.0
+        max_dd = 0.0
+
+        total_abs = 0.0
+        nz_cnt = 0
+
+        abs_vals = np.empty(n_bins, dtype=np.float64)
+
+        for i in range(n_bins):
+            c = int(bc[i])
+            x = float(bp[i])
+
+            if c > 0:
+                bins_hit += 1
+                if x > 0.0:
+                    pos_bins += 1
+                elif x < 0.0:
+                    neg_bins += 1
+
+            cur += x
+            if cur > peak:
+                peak = cur
+            dd = peak - cur
+            if dd > max_dd:
+                max_dd = dd
+
+            ax = x if x >= 0.0 else -x
+            abs_vals[i] = ax
+            total_abs += ax
+            if ax > 0.0:
+                nz_cnt += 1
+
+        coverage = bins_hit / n_bins if n_bins > 0 else 0.0
+        denom = bins_hit if bins_hit > 0 else 1
+        pos_frac = pos_bins / denom
+        neg_frac = neg_bins / denom
+
+        if total_abs <= 0.0:
+            top_share = 0.0
+            evenness = 0.0
+        else:
+            # top_share: сумма топ-k значений (через простой top-k подбор)
+            k = top_k_bins
+            if k >= n_bins:
+                top_sum = total_abs
+            else:
+                # держим массив top значений и минимум внутри него
+                top = np.zeros(k, dtype=np.float64)
+                filled = 0
+                min_idx = 0
+                min_val = 0.0
+
+                for i in range(n_bins):
+                    v = abs_vals[i]
+                    if filled < k:
+                        top[filled] = v
+                        filled += 1
+                        if filled == k:
+                            # найдём минимум
+                            min_idx = 0
+                            min_val = top[0]
+                            for j in range(1, k):
+                                if top[j] < min_val:
+                                    min_val = top[j]
+                                    min_idx = j
+                    else:
+                        if v > min_val:
+                            top[min_idx] = v
+                            # пересчёт минимума
+                            min_idx = 0
+                            min_val = top[0]
+                            for j in range(1, k):
+                                if top[j] < min_val:
+                                    min_val = top[j]
+                                    min_idx = j
+
+                top_sum = 0.0
+                for j in range(k):
+                    top_sum += top[j]
+
+            top_share = top_sum / total_abs
+
+            if nz_cnt <= 1:
+                evenness = 1.0
+            else:
+                ent = 0.0
+                for i in range(n_bins):
+                    v = abs_vals[i]
+                    if v > 0.0:
+                        p = v / total_abs
+                        ent -= p * math.log(p)
+                ent_max = math.log(float(nz_cnt))
+                evenness = ent / ent_max if ent_max > 0.0 else 0.0
+
+        stab = (
+            w_cov * coverage
+            + w_even * evenness
+            + w_pos * pos_frac
+            - w_top * top_share
+            - w_neg * neg_frac
+        )
+        if stab < -1.0:
+            stab = -1.0
+        elif stab > 1.5:
+            stab = 1.5
+
+        return stab, coverage, evenness, top_share, pos_bins, neg_bins, max_dd
+
+
+def _calc_stability_and_dd_fast(
+    *,
+    bin_profit: np.ndarray,
+    bin_count: np.ndarray,
+    top_k_bins: int,
+    stab_w: Dict[str, float],
+) -> Tuple[float, float, float, float, int, int, float]:
+    w_cov = float(stab_w.get("w_coverage", 0.0))
+    w_even = float(stab_w.get("w_evenness", 0.0))
+    w_pos = float(stab_w.get("w_pos_bins", 0.0))
+    w_top = float(stab_w.get("w_top_share", 0.0))
+    w_neg = float(stab_w.get("w_neg_bins", 0.0))
+
+    bp = np.asarray(bin_profit, dtype=np.float64).ravel()
+    bc = np.asarray(bin_count, dtype=np.int64).ravel()
+
+    if _HAVE_NUMBA:
+        return _stability_dd_numba(bp, bc, int(top_k_bins), w_cov, w_even, w_pos, w_top, w_neg)  # type: ignore
+    else:
+        return _stability_dd_py(bp, bc, int(top_k_bins), w_cov, w_even, w_pos, w_top, w_neg)
+
+def _build_log1p_table(n: int) -> Tuple[np.ndarray, float]:
+    n = int(n)
+    tbl = np.empty(n + 1, dtype=np.float64)
+    for i in range(n + 1):
+        tbl[i] = math.log1p(i)
+    total = float(tbl[n]) if n > 0 else 1.0
+    return tbl, total
 
 def _subset_sums_1d(vec: np.ndarray) -> np.ndarray:
     """
@@ -532,11 +897,11 @@ def _search_1d(
     uniques: List[Any],
     k: int,
     profit_col: str,
-    sum_by_val: np.ndarray,          # (k,)
-    cnt_by_val: np.ndarray,          # (k,)
-    pos_by_val: np.ndarray,          # (k,)
-    sum_bin_by_val: np.ndarray,      # (bins,k)
-    cnt_bin_by_val: np.ndarray,      # (bins,k)
+    sum_by_val: np.ndarray,
+    cnt_by_val: np.ndarray,
+    pos_by_val: np.ndarray,
+    sum_bin_by_val: np.ndarray,
+    cnt_bin_by_val: np.ndarray,
     bins: int,
     top_frac: float,
     min_rows: int,
@@ -550,81 +915,136 @@ def _search_1d(
     n_total_rows: int,
     top_k: int,
     progress: Optional[_Progress],
+    log1p_table: np.ndarray,
+    log1p_total: float,
 ) -> List[RuleCandidate]:
-    # Предвычисляем subset sums по маскам
-    ss_sum = _subset_sums_1d(sum_by_val.astype(np.float64, copy=False))
-    ss_cnt = _subset_sums_1d_int(cnt_by_val.astype(np.int64, copy=False))
-    ss_pos = _subset_sums_1d_int(pos_by_val.astype(np.int64, copy=False))
+    sum_by_val = np.asarray(sum_by_val, dtype=np.float64)
+    cnt_by_val = np.asarray(cnt_by_val, dtype=np.int64)
+    pos_by_val = np.asarray(pos_by_val, dtype=np.int64)
+    sum_bin_by_val = np.asarray(sum_bin_by_val, dtype=np.float64)
+    cnt_bin_by_val = np.asarray(cnt_bin_by_val, dtype=np.int64)
 
-    # Для бинов удобно делать DP по маскам отдельно для каждого бина
-    # (bins небольшие, k небольшое)
-    ss_bin_sum = np.zeros((1 << k, bins), dtype=np.float64)
-    ss_bin_cnt = np.zeros((1 << k, bins), dtype=np.int64)
+    mean_scale = float(obj.get("mean_scale", 1.0))
+    inv_mean_scale = (1.0 / mean_scale) if mean_scale != 0.0 else 1.0
 
-    for mask in range(1, (1 << k)):
-        lsb = mask & -mask
-        bit = int(lsb.bit_length() - 1)
-        prev = mask ^ lsb
-        ss_bin_sum[mask] = ss_bin_sum[prev] + sum_bin_by_val[:, bit]
-        ss_bin_cnt[mask] = ss_bin_cnt[prev] + cnt_bin_by_val[:, bit]
+    w_mean = float(obj.get("w_mean", 0.0))
+    w_win = float(obj.get("w_winrate", 0.0))
+    w_stab = float(obj.get("w_stability", 0.0))
+    w_dd = float(obj.get("w_drawdown", 0.0))
+    w_rows = float(obj.get("w_rows", 0.0))
+    w_cplx = float(obj.get("w_complexity", 0.0))
 
-    # индексы для печати/значений
-    idx_list = _mask_indices_list(k)
+    # для безопасного верхнего бонда
+    stab_best = 1.5 if w_stab >= 0.0 else -1.0
+    can_bound = (w_dd >= 0.0)
+
+    inv_k = 1.0 / float(max(1, int(k)))
+    max_sel_thr = float(max_sel_frac) * float(k)
+
+    top_k_bins = int(max(1, math.ceil(float(bins) * float(top_frac))))
 
     heap: List[Tuple[float, int, RuleCandidate]] = []
 
-    for mask in range(1, (1 << k)):
+    prev_mask = 0
+    bits_on = 0
+
+    n_run = 0
+    s_run = 0.0
+    pos_run = 0
+
+    bin_profit_run = np.zeros(int(bins), dtype=np.float64)
+    bin_count_run = np.zeros(int(bins), dtype=np.int64)
+
+    # батч прогресса
+    acc = 0
+    upd_every = int(progress.update_every) if progress is not None else 0
+
+    full = 1 << int(k)
+    for i in range(1, full):
         if progress is not None:
-            progress.add(1)
+            acc += 1
+            if acc >= upd_every:
+                progress.add(acc)
+                acc = 0
 
-        n = int(ss_cnt[mask])
-        if n < min_rows:
+        mask = i ^ (i >> 1)
+        delta = mask ^ prev_mask
+        bit = int(delta.bit_length() - 1)
+
+        turned_on = ((mask >> bit) & 1) == 1
+        if turned_on:
+            bits_on += 1
+            n_run += int(cnt_by_val[bit])
+            s_run += float(sum_by_val[bit])
+            pos_run += int(pos_by_val[bit])
+            bin_profit_run += sum_bin_by_val[:, bit]
+            bin_count_run += cnt_bin_by_val[:, bit]
+        else:
+            bits_on -= 1
+            n_run -= int(cnt_by_val[bit])
+            s_run -= float(sum_by_val[bit])
+            pos_run -= int(pos_by_val[bit])
+            bin_profit_run -= sum_bin_by_val[:, bit]
+            bin_count_run -= cnt_bin_by_val[:, bit]
+
+        prev_mask = mask
+
+        if n_run < int(min_rows):
+            continue
+        if float(bits_on) > max_sel_thr:
             continue
 
-        sel_frac = float(_popcount(mask) / max(1, k))
-        if sel_frac > float(max_sel_frac):
-            continue
-
-        s = float(ss_sum[mask])
-        mean = float(s / n) if n > 0 else float("nan")
+        mean = float(s_run / n_run) if n_run > 0 else float("nan")
         if require_pos_mean and not (mean > 0.0):
             continue
         if mean < float(min_mean):
             continue
 
-        pos = int(ss_pos[mask])
-        winrate = float(pos / n) if n > 0 else 0.0
+        winrate = float(pos_run / n_run) if n_run > 0 else 0.0
         if winrate < float(min_winrate):
             continue
 
-        bin_profit = ss_bin_sum[mask]          # (bins,)
-        bin_count = ss_bin_cnt[mask]          # (bins,)
+        sel_frac = float(bits_on) * inv_k
+        rows_bonus = float(log1p_table[int(n_run)] / log1p_total) if log1p_total > 0.0 else 0.0
+        cplx_bonus = float(1.0 - sel_frac)
 
-        stab_score, cov, eve, top_share, pos_bins, neg_bins = _calc_stability(
-            bin_profit=bin_profit,
-            bin_count=bin_count,
-            top_frac=float(top_frac),
+        mean_norm = float(mean) * inv_mean_scale
+        base_score = (
+            w_mean * mean_norm
+            + w_win * float(winrate)
+            + w_rows * rows_bonus
+            + w_cplx * cplx_bonus
+        )
+
+        # safe pruning: если даже в лучшем случае не обгоняет худшего в heap — пропускаем
+        if can_bound and len(heap) >= int(top_k):
+            worst = float(heap[0][0])
+            ub = base_score + (w_stab * stab_best)  # drawdown в лучшем случае даёт 0 штрафа
+            if ub <= worst:
+                continue
+
+        stab_score, cov, eve, top_share, pos_bins, neg_bins, dd_abs = _calc_stability_and_dd_fast(
+            bin_profit=bin_profit_run,
+            bin_count=bin_count_run,
+            top_k_bins=top_k_bins,
             stab_w=stab_w,
         )
 
-        dd_abs = _calc_drawdown_from_bins(bin_profit)
-        dd_scale = max(1e-12, abs(s))
+        dd_scale = max(1e-12, abs(float(s_run)))
         dd_rel = float(dd_abs / dd_scale)
 
         if max_dd_rel is not None and dd_rel > float(max_dd_rel):
             continue
 
-        complexity = sel_frac
-        score = _score_candidate(
-            profit_mean=mean,
-            winrate=winrate,
-            stability_score=stab_score,
-            dd_rel=dd_rel,
-            n_rows=n,
-            n_total_rows=n_total_rows,
-            complexity=complexity,
-            obj=obj,
+        score = (
+            base_score
+            + w_stab * float(stab_score)
+            - w_dd * float(dd_rel)
         )
+
+        # не строим объект/строку, если точно не улучшаем top-k
+        if len(heap) >= int(top_k) and score <= float(heap[0][0]):
+            continue
 
         vals = _mask_to_values(mask, uniques)
         rule_vals = {col: vals}
@@ -636,11 +1056,11 @@ def _search_1d(
             bit_masks={col: int(mask)},
             rule_values=rule_vals,
             rule_text=rule_txt,
-            n_rows=n,
-            profit_sum=s,
-            profit_mean=mean,
-            winrate=winrate,
-            stability_score=stab_score,
+            n_rows=int(n_run),
+            profit_sum=float(s_run),
+            profit_mean=float(mean),
+            winrate=float(winrate),
+            stability_score=float(stab_score),
             timeline_bins=int(bins),
             timeline_coverage=float(cov),
             timeline_evenness=float(eve),
@@ -649,14 +1069,18 @@ def _search_1d(
             timeline_neg_bins=int(neg_bins),
             dd_abs_bins=float(dd_abs),
             dd_rel_bins=float(dd_rel),
-            complexity=float(complexity),
+            complexity=float(sel_frac),
             score=float(score),
         )
-        _push_topk(heap, cand, top_k=top_k)
+        _push_topk(heap, cand, top_k=int(top_k))
 
-    # отсортировать по score убыванию
+    if progress is not None and acc > 0:
+        progress.add(acc)
+
     out = [e[2] for e in sorted(heap, key=lambda x: x[0], reverse=False)]
     return out
+
+
 
 
 def _search_2d(
@@ -685,118 +1109,165 @@ def _search_2d(
     n_total_rows: int,
     top_k: int,
     progress: Optional[_Progress],
+    log1p_table: Optional[np.ndarray] = None,
+    **_kw: Any,
 ) -> List[RuleCandidate]:
-    c0, c1 = cols
+    orig_c0, orig_c1 = cols
+    c0, c1 = orig_c0, orig_c1
 
-    # DP по маскам на оси 0: для каждого mask0 получаем вектор по оси 1
-    sum_m0 = np.zeros((1 << k0, k1), dtype=np.float64)
-    cnt_m0 = np.zeros((1 << k0, k1), dtype=np.int64)
-    pos_m0 = np.zeros((1 << k0, k1), dtype=np.int64)
+    sum_2d = np.asarray(sum_2d, dtype=np.float64)
+    cnt_2d = np.asarray(cnt_2d, dtype=np.int64)
+    pos_2d = np.asarray(pos_2d, dtype=np.int64)
+    sum_bin_2d = np.asarray(sum_bin_2d, dtype=np.float64)
+    cnt_bin_2d = np.asarray(cnt_bin_2d, dtype=np.int64)
 
-    # по бинам
-    sum_bin_m0 = np.zeros((1 << k0, bins, k1), dtype=np.float64)
-    cnt_bin_m0 = np.zeros((1 << k0, bins, k1), dtype=np.int64)
+    # swap чтобы внешняя ось была меньше (меньше перезапусков внутреннего цикла)
+    swapped = False
+    k0 = int(k0)
+    k1 = int(k1)
+    if k0 > k1:
+        swapped = True
+        k0, k1 = k1, k0
+        uniques0, uniques1 = uniques1, uniques0
+        c0, c1 = c1, c0
 
-    for mask0 in range(1, (1 << k0)):
-        lsb = mask0 & -mask0
-        bit = int(lsb.bit_length() - 1)
-        prev = mask0 ^ lsb
-        sum_m0[mask0] = sum_m0[prev] + sum_2d[bit]
-        cnt_m0[mask0] = cnt_m0[prev] + cnt_2d[bit]
-        pos_m0[mask0] = pos_m0[prev] + pos_2d[bit]
+        sum_2d = sum_2d.T
+        cnt_2d = cnt_2d.T
+        pos_2d = pos_2d.T
+        sum_bin_2d = np.swapaxes(sum_bin_2d, 1, 2)  # (bins,k0,k1)
+        cnt_bin_2d = np.swapaxes(cnt_bin_2d, 1, 2)
 
-        sum_bin_m0[mask0] = sum_bin_m0[prev] + sum_bin_2d[:, bit, :]
-        cnt_bin_m0[mask0] = cnt_bin_m0[prev] + cnt_bin_2d[:, bit, :]
+    # log1p_total
+    log1p_total: float = 1.0
+    if log1p_table is not None and 0 <= int(n_total_rows) < int(len(log1p_table)):
+        log1p_total = float(log1p_table[int(n_total_rows)]) if n_total_rows > 0 else 1.0
 
-    idx_list_1 = _mask_indices_list(k1)
+    mean_scale = float(obj.get("mean_scale", 1.0))
+    inv_mean_scale = (1.0 / mean_scale) if mean_scale != 0.0 else 1.0
+
+    w_mean = float(obj.get("w_mean", 0.0))
+    w_win = float(obj.get("w_winrate", 0.0))
+    w_stab = float(obj.get("w_stability", 0.0))
+    w_dd = float(obj.get("w_drawdown", 0.0))
+    w_rows = float(obj.get("w_rows", 0.0))
+    w_cplx = float(obj.get("w_complexity", 0.0))
+
+    stab_best = 1.5 if w_stab >= 0.0 else -1.0
+    can_bound = (w_dd >= 0.0)
+
+    inv_k0 = 1.0 / float(max(1, k0))
+    inv_k1 = 1.0 / float(max(1, k1))
+    max_sel_thr0 = float(max_sel_frac) * float(k0)
+    max_sel_thr1 = float(max_sel_frac) * float(k1)
+
+    top_k_bins = int(max(1, math.ceil(float(bins) * float(top_frac))))
 
     heap: List[Tuple[float, int, RuleCandidate]] = []
 
-    for mask0 in range(1, (1 << k0)):
-        sel0_frac = float(_popcount(mask0) / max(1, k0))
-        if sel0_frac > float(max_sel_frac):
-            # всё равно надо делать progress, иначе он “зависнет” по ETA
-            # но здесь мы не знаем, сколько mask1 будет пропущено; считаем 1 шаг за mask0
-            if progress is not None:
-                progress.add((1 << k1) - 1)
-            continue
+    # ---- быстрый прогресс батчами ----
+    acc = 0
+    upd_every = int(progress.update_every) if progress is not None else 0
 
-        vec_sum = sum_m0[mask0]           # (k1,)
-        vec_cnt = cnt_m0[mask0]           # (k1,)
-        vec_pos = pos_m0[mask0]           # (k1,)
-        mat_bin_sum = sum_bin_m0[mask0]   # (bins,k1)
-        mat_bin_cnt = cnt_bin_m0[mask0]   # (bins,k1)
+    def _padd(n: int) -> None:
+        nonlocal acc
+        if progress is None:
+            return
+        acc += int(n)
+        if acc >= upd_every:
+            progress.add(acc)
+            acc = 0
 
-        for mask1 in range(1, (1 << k1)):
-            if progress is not None:
-                progress.add(1)
+    # ---- заполнение heap начальными “синглтонами” (ускоряет prune дальше) ----
+    for i0 in range(k0):
+        for i1 in range(k1):
+            _padd(1)
 
-            sel1_frac = float(_popcount(mask1) / max(1, k1))
-            if sel1_frac > float(max_sel_frac):
+            n_run = int(cnt_2d[i0, i1])
+            if n_run < int(min_rows):
                 continue
 
-            idx1 = idx_list_1[mask1]
-            n = int(vec_cnt[idx1].sum())
-            if n < min_rows:
-                continue
-
-            s = float(vec_sum[idx1].sum())
-            mean = float(s / n) if n > 0 else float("nan")
+            s_run = float(sum_2d[i0, i1])
+            mean = float(s_run / n_run) if n_run > 0 else float("nan")
             if require_pos_mean and not (mean > 0.0):
                 continue
             if mean < float(min_mean):
                 continue
 
-            pos = int(vec_pos[idx1].sum())
-            winrate = float(pos / n) if n > 0 else 0.0
+            pos_run = int(pos_2d[i0, i1])
+            winrate = float(pos_run / n_run) if n_run > 0 else 0.0
             if winrate < float(min_winrate):
                 continue
 
-            bin_profit = mat_bin_sum[:, idx1].sum(axis=1)
-            bin_count = mat_bin_cnt[:, idx1].sum(axis=1)
+            sel0_frac = float(1.0 * inv_k0)
+            sel1_frac = float(1.0 * inv_k1)
+            complexity = float(0.5 * (sel0_frac + sel1_frac))
 
-            stab_score, cov, eve, top_share, pos_bins, neg_bins = _calc_stability(
-                bin_profit=bin_profit,
-                bin_count=bin_count,
-                top_frac=float(top_frac),
-                stab_w=stab_w,
+            if log1p_table is not None and 0 <= n_run < int(len(log1p_table)) and log1p_total > 0.0:
+                rows_bonus = float(log1p_table[n_run]) / float(log1p_total)
+            else:
+                rows_bonus = float(math.log1p(n_run) / math.log1p(max(1, int(n_total_rows))))
+
+            cplx_bonus = float(1.0 - complexity)
+            mean_norm = float(mean) * inv_mean_scale
+
+            base_score = (
+                w_mean * mean_norm
+                + w_win * float(winrate)
+                + w_rows * float(rows_bonus)
+                + w_cplx * float(cplx_bonus)
             )
 
-            dd_abs = _calc_drawdown_from_bins(bin_profit)
-            dd_scale = max(1e-12, abs(s))
-            dd_rel = float(dd_abs / dd_scale)
+            if can_bound and len(heap) >= int(top_k):
+                worst = float(heap[0][0])
+                ub = base_score + (w_stab * stab_best)
+                if ub <= worst:
+                    continue
 
+            bp = sum_bin_2d[:, i0, i1]
+            bc = cnt_bin_2d[:, i0, i1]
+            stab_score, cov, eve, top_share, pos_bins, neg_bins, dd_abs = _calc_stability_and_dd_fast(
+                bin_profit=bp,
+                bin_count=bc,
+                top_k_bins=top_k_bins,
+                stab_w=stab_w,
+            )
+            dd_scale = max(1e-12, abs(float(s_run)))
+            dd_rel = float(dd_abs / dd_scale)
             if max_dd_rel is not None and dd_rel > float(max_dd_rel):
                 continue
 
-            complexity = float(0.5 * (sel0_frac + sel1_frac))
-            score = _score_candidate(
-                profit_mean=mean,
-                winrate=winrate,
-                stability_score=stab_score,
-                dd_rel=dd_rel,
-                n_rows=n,
-                n_total_rows=n_total_rows,
-                complexity=complexity,
-                obj=obj,
-            )
+            score = base_score + w_stab * float(stab_score) - w_dd * float(dd_rel)
+            if len(heap) >= int(top_k) and score <= float(heap[0][0]):
+                continue
 
-            vals0 = _mask_to_values(mask0, uniques0)
-            vals1 = _mask_to_values(mask1, uniques1)
-            rule_vals = {c0: vals0, c1: vals1}
-            rule_txt = _rule_text(rule_vals)
+            mask0 = 1 << i0
+            mask1 = 1 << i1
+
+            if not swapped:
+                vals0 = (uniques0[i0],)
+                vals1 = (uniques1[i1],)
+                rule_vals = {c0: vals0, c1: vals1}
+                bit_masks = {c0: int(mask0), c1: int(mask1)}
+                cols_out = (c0, c1)
+            else:
+                # вернёмся к исходному порядку колонок
+                vals_orig0 = (uniques1[i1],)  # orig_c0
+                vals_orig1 = (uniques0[i0],)  # orig_c1
+                rule_vals = {orig_c0: vals_orig0, orig_c1: vals_orig1}
+                bit_masks = {orig_c0: int(mask1), orig_c1: int(mask0)}
+                cols_out = (orig_c0, orig_c1)
 
             cand = RuleCandidate(
                 profit_col=profit_col,
-                cols=(c0, c1),
-                bit_masks={c0: int(mask0), c1: int(mask1)},
+                cols=cols_out,
+                bit_masks=bit_masks,
                 rule_values=rule_vals,
-                rule_text=rule_txt,
-                n_rows=n,
-                profit_sum=s,
-                profit_mean=mean,
-                winrate=winrate,
-                stability_score=stab_score,
+                rule_text=_rule_text(rule_vals),
+                n_rows=int(n_run),
+                profit_sum=float(s_run),
+                profit_mean=float(mean),
+                winrate=float(winrate),
+                stability_score=float(stab_score),
                 timeline_bins=int(bins),
                 timeline_coverage=float(cov),
                 timeline_evenness=float(eve),
@@ -808,10 +1279,192 @@ def _search_2d(
                 complexity=float(complexity),
                 score=float(score),
             )
-            _push_topk(heap, cand, top_k=top_k)
+            _push_topk(heap, cand, top_k=int(top_k))
+
+    # ---- основной перебор: Gray по mask0 и mask1, без DP-таблиц на все mask0 ----
+    vec_sum0 = np.zeros(k1, dtype=np.float64)
+    vec_cnt0 = np.zeros(k1, dtype=np.int64)
+    vec_pos0 = np.zeros(k1, dtype=np.int64)
+    mat_bin_sum0 = np.zeros((bins, k1), dtype=np.float64)
+    mat_bin_cnt0 = np.zeros((bins, k1), dtype=np.int64)
+
+    prev_mask0 = 0
+    bits0_on = 0
+
+    bin_profit_run = np.empty(int(bins), dtype=np.float64)
+    bin_count_run = np.empty(int(bins), dtype=np.int64)
+
+    full0 = 1 << int(k0)
+    full1 = 1 << int(k1)
+
+    for i0 in range(1, full0):
+        mask0 = i0 ^ (i0 >> 1)
+        delta0 = mask0 ^ prev_mask0
+        bit0 = int(delta0.bit_length() - 1)
+
+        turned_on0 = ((mask0 >> bit0) & 1) == 1
+        if turned_on0:
+            bits0_on += 1
+            vec_sum0 += sum_2d[bit0]
+            vec_cnt0 += cnt_2d[bit0]
+            vec_pos0 += pos_2d[bit0]
+            mat_bin_sum0 += sum_bin_2d[:, bit0, :]
+            mat_bin_cnt0 += cnt_bin_2d[:, bit0, :]
+        else:
+            bits0_on -= 1
+            vec_sum0 -= sum_2d[bit0]
+            vec_cnt0 -= cnt_2d[bit0]
+            vec_pos0 -= pos_2d[bit0]
+            mat_bin_sum0 -= sum_bin_2d[:, bit0, :]
+            mat_bin_cnt0 -= cnt_bin_2d[:, bit0, :]
+
+        prev_mask0 = mask0
+
+        if float(bits0_on) > max_sel_thr0:
+            _padd((full1 - 1))
+            continue
+
+        # если даже “все значения второй колонки” не набирают min_rows — можно пропустить весь mask0
+        if int(vec_cnt0.sum()) < int(min_rows):
+            _padd((full1 - 1))
+            continue
+
+        sel0_frac = float(bits0_on) * inv_k0
+
+        prev_mask1 = 0
+        bits1_on = 0
+
+        n_run = 0
+        s_run = 0.0
+        pos_run = 0
+
+        bin_profit_run.fill(0.0)
+        bin_count_run.fill(0)
+
+        for i1 in range(1, full1):
+            _padd(1)
+
+            mask1 = i1 ^ (i1 >> 1)
+            delta1 = mask1 ^ prev_mask1
+            bit1 = int(delta1.bit_length() - 1)
+
+            turned_on1 = ((mask1 >> bit1) & 1) == 1
+            if turned_on1:
+                bits1_on += 1
+                n_run += int(vec_cnt0[bit1])
+                s_run += float(vec_sum0[bit1])
+                pos_run += int(vec_pos0[bit1])
+                bin_profit_run += mat_bin_sum0[:, bit1]
+                bin_count_run += mat_bin_cnt0[:, bit1]
+            else:
+                bits1_on -= 1
+                n_run -= int(vec_cnt0[bit1])
+                s_run -= float(vec_sum0[bit1])
+                pos_run -= int(vec_pos0[bit1])
+                bin_profit_run -= mat_bin_sum0[:, bit1]
+                bin_count_run -= mat_bin_cnt0[:, bit1]
+
+            prev_mask1 = mask1
+
+            if float(bits1_on) > max_sel_thr1:
+                continue
+            if n_run < int(min_rows):
+                continue
+
+            mean = float(s_run / n_run) if n_run > 0 else float("nan")
+            if require_pos_mean and not (mean > 0.0):
+                continue
+            if mean < float(min_mean):
+                continue
+
+            winrate = float(pos_run / n_run) if n_run > 0 else 0.0
+            if winrate < float(min_winrate):
+                continue
+
+            sel1_frac = float(bits1_on) * inv_k1
+            complexity = float(0.5 * (sel0_frac + sel1_frac))
+
+            if log1p_table is not None and 0 <= n_run < int(len(log1p_table)) and log1p_total > 0.0:
+                rows_bonus = float(log1p_table[int(n_run)]) / float(log1p_total)
+            else:
+                rows_bonus = float(math.log1p(int(n_run)) / math.log1p(max(1, int(n_total_rows))))
+
+            cplx_bonus = float(1.0 - complexity)
+            mean_norm = float(mean) * inv_mean_scale
+
+            base_score = (
+                w_mean * mean_norm
+                + w_win * float(winrate)
+                + w_rows * float(rows_bonus)
+                + w_cplx * float(cplx_bonus)
+            )
+
+            if can_bound and len(heap) >= int(top_k):
+                worst = float(heap[0][0])
+                ub = base_score + (w_stab * stab_best)
+                if ub <= worst:
+                    continue
+
+            stab_score, cov, eve, top_share, pos_bins, neg_bins, dd_abs = _calc_stability_and_dd_fast(
+                bin_profit=bin_profit_run,
+                bin_count=bin_count_run,
+                top_k_bins=top_k_bins,
+                stab_w=stab_w,
+            )
+
+            dd_scale = max(1e-12, abs(float(s_run)))
+            dd_rel = float(dd_abs / dd_scale)
+            if max_dd_rel is not None and dd_rel > float(max_dd_rel):
+                continue
+
+            score = base_score + w_stab * float(stab_score) - w_dd * float(dd_rel)
+            if len(heap) >= int(top_k) and score <= float(heap[0][0]):
+                continue
+
+            if not swapped:
+                vals0 = _mask_to_values(mask0, uniques0)
+                vals1 = _mask_to_values(mask1, uniques1)
+                rule_vals = {c0: vals0, c1: vals1}
+                bit_masks = {c0: int(mask0), c1: int(mask1)}
+                cols_out = (c0, c1)
+            else:
+                # вернёмся к исходному порядку (orig_c0, orig_c1)
+                vals_orig0 = _mask_to_values(mask1, uniques1)  # orig_c0
+                vals_orig1 = _mask_to_values(mask0, uniques0)  # orig_c1
+                rule_vals = {orig_c0: vals_orig0, orig_c1: vals_orig1}
+                bit_masks = {orig_c0: int(mask1), orig_c1: int(mask0)}
+                cols_out = (orig_c0, orig_c1)
+
+            cand = RuleCandidate(
+                profit_col=profit_col,
+                cols=cols_out,
+                bit_masks=bit_masks,
+                rule_values=rule_vals,
+                rule_text=_rule_text(rule_vals),
+                n_rows=int(n_run),
+                profit_sum=float(s_run),
+                profit_mean=float(mean),
+                winrate=float(winrate),
+                stability_score=float(stab_score),
+                timeline_bins=int(bins),
+                timeline_coverage=float(cov),
+                timeline_evenness=float(eve),
+                timeline_top_share=float(top_share),
+                timeline_pos_bins=int(pos_bins),
+                timeline_neg_bins=int(neg_bins),
+                dd_abs_bins=float(dd_abs),
+                dd_rel_bins=float(dd_rel),
+                complexity=float(complexity),
+                score=float(score),
+            )
+            _push_topk(heap, cand, top_k=int(top_k))
+
+    if progress is not None and acc > 0:
+        progress.add(acc)
 
     out = [e[2] for e in sorted(heap, key=lambda x: x[0], reverse=True)]
     return out
+
 
 
 def _search_3d(
@@ -838,19 +1491,52 @@ def _search_3d(
     n_total_rows: int,
     top_k: int,
     progress: Optional[_Progress],
-    max_candidates_guard: int,
+    max_candidates_guard: Optional[int],   # <-- ВАЖНО: теперь Optional
+    log1p_table: np.ndarray,
+    log1p_total: float,
 ) -> List[RuleCandidate]:
-    # Guard: если слишком много комбинаций — лучше не убивать машину
-    k0, k1, k2 = k_list
+    k0, k1, k2 = [int(x) for x in k_list]
     n_cand = ((1 << k0) - 1) * ((1 << k1) - 1) * ((1 << k2) - 1)
-    if n_cand > max_candidates_guard:
-        print(f"[WARN] 3D search skipped for cols={cols} because candidates={n_cand:,} > guard={max_candidates_guard:,}")
+
+    # guard можно ОТКЛЮЧИТЬ, если max_candidates_guard <= 0
+    if int(max_candidates_guard) > 0 and n_cand > int(max_candidates_guard):
+        print(f"[WARN] 3D search skipped for cols={cols} because candidates={n_cand:,} > guard={int(max_candidates_guard):,}")
         return []
 
     c0, c1, c2n = cols
+
     u0, u1, u2 = uniques_list
 
-    # DP по mask0: сворачиваем ось 0 -> получаем 2D (k1,k2)
+    sum_3d = np.asarray(sum_3d, dtype=np.float64)
+    cnt_3d = np.asarray(cnt_3d, dtype=np.int64)
+    pos_3d = np.asarray(pos_3d, dtype=np.int64)
+    sum_bin_3d = np.asarray(sum_bin_3d, dtype=np.float64)
+    cnt_bin_3d = np.asarray(cnt_bin_3d, dtype=np.int64)
+
+    mean_scale = float(obj.get("mean_scale", 1.0))
+    inv_mean_scale = (1.0 / mean_scale) if mean_scale != 0.0 else 1.0
+
+    w_mean = float(obj.get("w_mean", 0.0))
+    w_win = float(obj.get("w_winrate", 0.0))
+    w_stab = float(obj.get("w_stability", 0.0))
+    w_dd = float(obj.get("w_drawdown", 0.0))
+    w_rows = float(obj.get("w_rows", 0.0))
+    w_cplx = float(obj.get("w_complexity", 0.0))
+
+    stab_best = 1.5 if w_stab >= 0.0 else -1.0
+    can_bound = (w_dd >= 0.0)
+
+    inv_k0 = 1.0 / float(max(1, int(k0)))
+    inv_k1 = 1.0 / float(max(1, int(k1)))
+    inv_k2 = 1.0 / float(max(1, int(k2)))
+
+    max_sel_thr0 = float(max_sel_frac) * float(k0)
+    max_sel_thr1 = float(max_sel_frac) * float(k1)
+    max_sel_thr2 = float(max_sel_frac) * float(k2)
+
+    top_k_bins = int(max(1, math.ceil(float(bins) * float(top_frac))))
+
+    # DP по mask0
     sum_m0 = np.zeros((1 << k0, k1, k2), dtype=np.float64)
     cnt_m0 = np.zeros((1 << k0, k1, k2), dtype=np.int64)
     pos_m0 = np.zeros((1 << k0, k1, k2), dtype=np.int64)
@@ -868,26 +1554,23 @@ def _search_3d(
         sum_bin_m0[mask0] = sum_bin_m0[prev] + sum_bin_3d[:, bit, :, :]
         cnt_bin_m0[mask0] = cnt_bin_m0[prev] + cnt_bin_3d[:, bit, :, :]
 
-    idx_list_1 = _mask_indices_list(k1)
-    idx_list_2 = _mask_indices_list(k2)
-
     heap: List[Tuple[float, int, RuleCandidate]] = []
+    upd_every = int(progress.update_every) if progress is not None else 0
 
     for mask0 in range(1, (1 << k0)):
-        sel0_frac = float(_popcount(mask0) / max(1, k0))
-        if sel0_frac > float(max_sel_frac):
-            # прогресс приблизительно — считаем что мы “пропустили” весь внутренний перебор
+        sel0_bits = _popcount(mask0)
+        if float(sel0_bits) > max_sel_thr0:
             if progress is not None:
                 progress.add(((1 << k1) - 1) * ((1 << k2) - 1))
             continue
 
-        w2d = sum_m0[mask0]           # (k1,k2)
+        w2d = sum_m0[mask0]
         c2d = cnt_m0[mask0]
         p2d = pos_m0[mask0]
-        wb2d = sum_bin_m0[mask0]      # (bins,k1,k2)
+        wb2d = sum_bin_m0[mask0]
         cb2d = cnt_bin_m0[mask0]
 
-        # DP по mask1: сворачиваем ось 1 -> получаем вектор по оси 2
+        # DP по mask1
         sum_m1 = np.zeros((1 << k1, k2), dtype=np.float64)
         cnt_m1 = np.zeros((1 << k1, k2), dtype=np.int64)
         pos_m1 = np.zeros((1 << k1, k2), dtype=np.int64)
@@ -906,69 +1589,112 @@ def _search_3d(
             cnt_bin_m1[mask1] = cnt_bin_m1[prev] + cb2d[:, bit, :]
 
         for mask1 in range(1, (1 << k1)):
-            if progress is not None:
-                progress.add((1 << k2) - 1)
-
-            sel1_frac = float(_popcount(mask1) / max(1, k1))
-            if sel1_frac > float(max_sel_frac):
+            sel1_bits = _popcount(mask1)
+            if float(sel1_bits) > max_sel_thr1:
+                if progress is not None:
+                    progress.add((1 << k2) - 1)
                 continue
 
             vec_sum = sum_m1[mask1]
             vec_cnt = cnt_m1[mask1]
             vec_pos = pos_m1[mask1]
-            mat_bin_sum = sum_bin_m1[mask1]   # (bins,k2)
+            mat_bin_sum = sum_bin_m1[mask1]
             mat_bin_cnt = cnt_bin_m1[mask1]
 
-            for mask2 in range(1, (1 << k2)):
-                sel2_frac = float(_popcount(mask2) / max(1, k2))
-                if sel2_frac > float(max_sel_frac):
+            prev_mask2 = 0
+            bits2_on = 0
+
+            n_run = 0
+            s_run = 0.0
+            pos_run = 0
+
+            bin_profit_run = np.zeros(int(bins), dtype=np.float64)
+            bin_count_run = np.zeros(int(bins), dtype=np.int64)
+
+            acc = 0
+            full2 = 1 << int(k2)
+            for i2 in range(1, full2):
+                if progress is not None:
+                    acc += 1
+                    if acc >= upd_every:
+                        progress.add(acc)
+                        acc = 0
+
+                mask2 = i2 ^ (i2 >> 1)
+                delta = mask2 ^ prev_mask2
+                bit = int(delta.bit_length() - 1)
+
+                turned_on = ((mask2 >> bit) & 1) == 1
+                if turned_on:
+                    bits2_on += 1
+                    n_run += int(vec_cnt[bit])
+                    s_run += float(vec_sum[bit])
+                    pos_run += int(vec_pos[bit])
+                    bin_profit_run += mat_bin_sum[:, bit]
+                    bin_count_run += mat_bin_cnt[:, bit]
+                else:
+                    bits2_on -= 1
+                    n_run -= int(vec_cnt[bit])
+                    s_run -= float(vec_sum[bit])
+                    pos_run -= int(vec_pos[bit])
+                    bin_profit_run -= mat_bin_sum[:, bit]
+                    bin_count_run -= mat_bin_cnt[:, bit]
+
+                prev_mask2 = mask2
+
+                if n_run < int(min_rows):
+                    continue
+                if float(bits2_on) > max_sel_thr2:
                     continue
 
-                idx2 = idx_list_2[mask2]
-                n = int(vec_cnt[idx2].sum())
-                if n < min_rows:
-                    continue
-
-                s = float(vec_sum[idx2].sum())
-                mean = float(s / n) if n > 0 else float("nan")
+                mean = float(s_run / n_run) if n_run > 0 else float("nan")
                 if require_pos_mean and not (mean > 0.0):
                     continue
                 if mean < float(min_mean):
                     continue
 
-                pos = int(vec_pos[idx2].sum())
-                winrate = float(pos / n) if n > 0 else 0.0
+                winrate = float(pos_run / n_run) if n_run > 0 else 0.0
                 if winrate < float(min_winrate):
                     continue
 
-                bin_profit = mat_bin_sum[:, idx2].sum(axis=1)
-                bin_count = mat_bin_cnt[:, idx2].sum(axis=1)
+                sel0_frac = float(sel0_bits) * inv_k0
+                sel1_frac = float(sel1_bits) * inv_k1
+                sel2_frac = float(bits2_on) * inv_k2
+                complexity = float((sel0_frac + sel1_frac + sel2_frac) / 3.0)
 
-                stab_score, cov, eve, top_share, pos_bins, neg_bins = _calc_stability(
-                    bin_profit=bin_profit,
-                    bin_count=bin_count,
-                    top_frac=float(top_frac),
+                rows_bonus = float(log1p_table[int(n_run)] / log1p_total) if log1p_total > 0.0 else 0.0
+                cplx_bonus = float(1.0 - complexity)
+                mean_norm = float(mean) * inv_mean_scale
+
+                base_score = (
+                    w_mean * mean_norm
+                    + w_win * float(winrate)
+                    + w_rows * rows_bonus
+                    + w_cplx * cplx_bonus
+                )
+
+                if can_bound and len(heap) >= int(top_k):
+                    worst = float(heap[0][0])
+                    ub = base_score + (w_stab * stab_best)
+                    if ub <= worst:
+                        continue
+
+                stab_score, cov, eve, top_share, pos_bins, neg_bins, dd_abs = _calc_stability_and_dd_fast(
+                    bin_profit=bin_profit_run,
+                    bin_count=bin_count_run,
+                    top_k_bins=top_k_bins,
                     stab_w=stab_w,
                 )
 
-                dd_abs = _calc_drawdown_from_bins(bin_profit)
-                dd_scale = max(1e-12, abs(s))
+                dd_scale = max(1e-12, abs(float(s_run)))
                 dd_rel = float(dd_abs / dd_scale)
 
                 if max_dd_rel is not None and dd_rel > float(max_dd_rel):
                     continue
 
-                complexity = float((sel0_frac + sel1_frac + sel2_frac) / 3.0)
-                score = _score_candidate(
-                    profit_mean=mean,
-                    winrate=winrate,
-                    stability_score=stab_score,
-                    dd_rel=dd_rel,
-                    n_rows=n,
-                    n_total_rows=n_total_rows,
-                    complexity=complexity,
-                    obj=obj,
-                )
+                score = base_score + w_stab * float(stab_score) - w_dd * float(dd_rel)
+                if len(heap) >= int(top_k) and score <= float(heap[0][0]):
+                    continue
 
                 vals0 = _mask_to_values(mask0, u0)
                 vals1 = _mask_to_values(mask1, u1)
@@ -982,11 +1708,11 @@ def _search_3d(
                     bit_masks={c0: int(mask0), c1: int(mask1), c2n: int(mask2)},
                     rule_values=rule_vals,
                     rule_text=rule_txt,
-                    n_rows=n,
-                    profit_sum=s,
-                    profit_mean=mean,
-                    winrate=winrate,
-                    stability_score=stab_score,
+                    n_rows=int(n_run),
+                    profit_sum=float(s_run),
+                    profit_mean=float(mean),
+                    winrate=float(winrate),
+                    stability_score=float(stab_score),
                     timeline_bins=int(bins),
                     timeline_coverage=float(cov),
                     timeline_evenness=float(eve),
@@ -998,10 +1724,15 @@ def _search_3d(
                     complexity=float(complexity),
                     score=float(score),
                 )
-                _push_topk(heap, cand, top_k=top_k)
+                _push_topk(heap, cand, top_k=int(top_k))
+
+            if progress is not None and acc > 0:
+                progress.add(acc)
 
     out = [e[2] for e in sorted(heap, key=lambda x: x[0], reverse=True)]
     return out
+
+
 
 
 # ======================================================================
@@ -1018,28 +1749,20 @@ def find_best_trade_rules(
     min_rows: int = DEFAULT_MIN_ROWS,
     show_progress: bool = True,
     print_results: bool = True,
-
-    # Мульти-цель (веса) / стабильность / таймлайн
     objective: Optional[Dict[str, float]] = None,
     stability_weights: Optional[Dict[str, float]] = None,
     timeline: Optional[Dict[str, Any]] = None,
-
-    # Фильтры качества
     require_positive_mean: bool = DEFAULT_REQUIRE_POSITIVE_MEAN,
     min_mean: float = DEFAULT_MIN_MEAN,
     min_winrate: float = DEFAULT_MIN_WINRATE,
     max_drawdown_rel: Optional[float] = DEFAULT_MAX_DD_REL,
     max_selected_fraction_per_col: float = DEFAULT_MAX_SELECTED_FRACTION_PER_COL,
-
-    # Сколько лучших кандидатов сохранять на каждый набор колонок и profit_col
     top_k: int = DEFAULT_TOP_K,
-
-    # Пересчитать точную просадку по строкам для top_k (уже после поиска)
     recalc_exact_dd_for_top: bool = DEFAULT_RECALC_EXACT_DD_FOR_TOP,
-
-    # Защита от убийства CPU при 3D
-    max_candidates_guard_3d: int = 3_000_000,
+    # Guard 3D: можно выключить (None или <=0)
+    max_candidates_guard_3d: Optional[int] = 3_000_000,
 ) -> Dict[Tuple[str, ...], Dict[str, List[RuleCandidate]]]:
+
     if not isinstance(max_var, int) or max_var < 1:
         raise ValueError("max_var must be an integer >= 1")
     if max_var > 3:
@@ -1101,6 +1824,7 @@ def find_best_trade_rules(
     for pc in profit_cols:
         arr = pd.to_numeric(df[pc], errors="coerce").to_numpy(dtype=np.float64, copy=False)
         valid &= np.isfinite(arr)
+
     if not valid.all():
         df = df[valid].reset_index(drop=True)
 
@@ -1138,6 +1862,37 @@ def find_best_trade_rules(
     if len(eligible_cols) < max_var:
         raise ValueError(f"Not enough eligible columns for max_var={max_var}. Eligible: {len(eligible_cols)}")
 
+    # 6.5) Печать: какие колонки участвуют и сколько у них уникальных значений
+    if print_results:
+        print()
+        print("=" * 120)
+        print("ELIGIBLE FEATURE COLUMNS (will be used in search)")
+        print("=" * 120)
+
+        info: List[Tuple[str, int, int]] = []
+        for c in eligible_cols:
+            nun = int(df[c].nunique(dropna=False))
+            n_non_na = int(df[c].notna().sum())
+            info.append((c, nun, n_non_na))
+
+        info.sort(key=lambda x: (-x[1], x[0]))
+        for c, nun, n_non_na in info:
+            print(f"  {c:<35} uniques={nun:<6} non_na={n_non_na:<8}")
+
+        print("=" * 120)
+
+        if skipped_cols:
+            print("SKIPPED (too many uniques):")
+            for c, nun in sorted(skipped_cols, key=lambda x: -x[1]):
+                print(f"  {c:<35} uniques={nun}")
+            print("=" * 120)
+
+        if skipped_constant:
+            print("SKIPPED (constant / nearly constant):")
+            for c, v in sorted(skipped_constant, key=lambda x: x[0]):
+                print(f"  {c:<35} const_value={v}")
+            print("=" * 120)
+
     # 7) факторизация признаков
     fact = _factorize_columns(df, eligible_cols)
 
@@ -1149,11 +1904,11 @@ def find_best_trade_rules(
 
     # 10) оценка веса прогресса
     def _cand_count_for_cols(cols: Tuple[str, ...]) -> int:
-        ks = [int(fact[c]["k"]) for c in cols]
-        total = 1
-        for k in ks:
-            total *= ((1 << k) - 1)
-        return int(total)
+        ks_loc = [int(fact[c]["k"]) for c in cols]
+        total_loc = 1
+        for k_loc in ks_loc:
+            total_loc *= ((1 << int(k_loc)) - 1)
+        return int(total_loc)
 
     total_steps = 0
     for cs in col_sets:
@@ -1168,6 +1923,11 @@ def find_best_trade_rules(
     }
 
     n_total_rows = int(len(df))
+
+    # Предрасчёт log1p (ускоряет rows_bonus)
+    log1p_table, log1p_total = _build_log1p_table(n_total_rows)
+
+    # !!! ВАЖНО: results должен быть объявлен ДО try/цикла !!!
     results: Dict[Tuple[str, ...], Dict[str, List[RuleCandidate]]] = {}
 
     # ==================================================================
@@ -1202,16 +1962,16 @@ def find_best_trade_rules(
                 sum_tensor = sum_flat.reshape(shape)
 
                 # “плюсовые сделки” по ячейкам
-                pos_w = (p > 0.0).astype(np.int64, copy=False)
-                pos_flat = _bincount_tensor(flat_idx, size=size, weights=pos_w.astype(np.float64, copy=False))
-                pos_tensor = pos_flat.reshape(shape).astype(np.int64, copy=False)
+                pos_mask = (p > 0.0)
+                pos_flat = np.bincount(flat_idx[pos_mask], minlength=size).astype(np.int64, copy=False)
+                pos_tensor = pos_flat.reshape(shape)
 
                 # суммарная прибыль по бинам
                 sum_bin_flat = _bincount_bin_tensor(bin_id, flat_idx, n_bins=bins, size=size, weights=p)
                 sum_bin_tensor = sum_bin_flat.reshape((bins,) + shape)
 
                 # ----------------------------------------------------------
-                # Поиск лучших кандидатов по новой цели
+                # Поиск лучших кандидатов
                 # ----------------------------------------------------------
                 if max_var == 1:
                     c0 = cols[0]
@@ -1248,6 +2008,8 @@ def find_best_trade_rules(
                         n_total_rows=n_total_rows,
                         top_k=int(top_k),
                         progress=progress,
+                        log1p_table=log1p_table,
+                        log1p_total=log1p_total,
                     )
                     per_profit[pc] = best
 
@@ -1281,11 +2043,14 @@ def find_best_trade_rules(
                         n_total_rows=n_total_rows,
                         top_k=int(top_k),
                         progress=progress,
+                        log1p_table=log1p_table,
+                        log1p_total=log1p_total,
                     )
                     per_profit[pc] = best
 
                 else:
                     c0, c1, c2 = cols
+
                     best = _search_3d(
                         cols=(c0, c1, c2),
                         uniques_list=uniques_list,     # type: ignore
@@ -1309,7 +2074,9 @@ def find_best_trade_rules(
                         n_total_rows=n_total_rows,
                         top_k=int(top_k),
                         progress=progress,
-                        max_candidates_guard=int(max_candidates_guard_3d),
+                        max_candidates_guard=max_candidates_guard_3d,
+                        log1p_table=log1p_table,
+                        log1p_total=log1p_total,
                     )
                     per_profit[pc] = best
 
@@ -1325,27 +2092,26 @@ def find_best_trade_rules(
                         continue
 
                     p = profit_arrays[pc]
-                    # для каждого кандидата пересчитываем include_mask и точную просадку
                     for i in range(len(cands)):
                         cand = cands[i]
                         include = np.ones(len(df), dtype=np.bool_)
+
                         for c in cand.cols:
                             codes = fact[c]["codes"]
                             k = int(fact[c]["k"])
                             bm = int(cand.bit_masks[c])
 
-                            # делаем allowed маску по категориям
                             allowed = np.zeros(k, dtype=np.bool_)
                             for bit in range(k):
                                 if (bm >> bit) & 1:
                                     allowed[bit] = True
+
                             include &= allowed[codes]
 
                         dd_abs_exact = _calc_exact_drawdown_on_rows(p, include_mask=include)
                         scale = max(1e-12, abs(float(p[include].sum())))
                         dd_rel_exact = float(dd_abs_exact / scale)
 
-                        # заменить объект на новый (dataclass frozen)
                         cands[i] = RuleCandidate(
                             profit_col=cand.profit_col,
                             cols=cand.cols,
@@ -1383,13 +2149,15 @@ def find_best_trade_rules(
             print(f"Rows used: {len(df):,}")
             print(f"max_var={max_var} | min_rows={min_rows} | max_unique={max_unique}")
             print(f"Timeline: bins={bins} | bin_mode={bin_mode} | top_frac={top_frac}")
-            print(f"Filters: require_pos_mean={require_positive_mean} | min_mean={min_mean} | min_winrate={min_winrate} | "
-                  f"max_dd_rel={max_drawdown_rel} | max_selected_fraction_per_col={max_selected_fraction_per_col}")
+            print(
+                "Filters: "
+                f"require_pos_mean={require_positive_mean} | min_mean={min_mean} | min_winrate={min_winrate} | "
+                f"max_dd_rel={max_drawdown_rel} | max_selected_fraction_per_col={max_selected_fraction_per_col}"
+            )
             print("Objective weights:", obj)
             print("Stability weights:", stab_w)
             print("=" * 120)
 
-            # Упорядочим наборы колонок по лучшему score (по profit_2 если есть, иначе по первому)
             sort_pc = "profit_2" if "profit_2" in profit_cols else profit_cols[0]
 
             def _best_score_for(cs: Tuple[str, ...]) -> float:
@@ -1397,8 +2165,8 @@ def find_best_trade_rules(
                 cands = per.get(sort_pc, [])
                 return float(cands[0].score) if cands else float("-inf")
 
-            sorted_sets = sorted(results.keys(), key=_best_score_for, reverse=False)
-
+            # ЛУЧШИЕ сверху (reverse=True)
+            sorted_sets = sorted(results.keys(), key=_best_score_for, reverse=True)
 
             for cs in sorted_sets:
                 print("-" * 120)
@@ -1416,13 +2184,19 @@ def find_best_trade_rules(
                         dd_exact = cand.dd_rel_exact if cand.dd_rel_exact is not None else float("nan")
                         dd_exact_abs = cand.dd_abs_exact if cand.dd_abs_exact is not None else float("nan")
 
-                        print(f"    #{rank} score={cand.score:.6f} | N={cand.n_rows} | mean={cand.profit_mean:.6f} | "
-                              f"winrate={cand.winrate:.3f} | stab={cand.stability_score:.3f} | "
-                              f"dd_rel_bins={cand.dd_rel_bins:.3f} | dd_rel_exact={dd_exact:.3f}")
+                        print(
+                            f"    #{rank} score={cand.score:.6f} | N={cand.n_rows} | mean={cand.profit_mean:.6f} | "
+                            f"winrate={cand.winrate:.3f} | stab={cand.stability_score:.3f} | "
+                            f"dd_rel_bins={cand.dd_rel_bins:.3f} | dd_rel_exact={dd_exact:.3f}"
+                        )
 
                         print(f"        sum={cand.profit_sum:.6f} | complexity={cand.complexity:.3f}")
-                        print(f"        timeline: coverage={cand.timeline_coverage:.3f} | evenness={cand.timeline_evenness:.3f} | "
-                              f"top_share={cand.timeline_top_share:.3f} | pos_bins={cand.timeline_pos_bins} | neg_bins={cand.timeline_neg_bins}")
+                        print(
+                            "        timeline: "
+                            f"coverage={cand.timeline_coverage:.3f} | evenness={cand.timeline_evenness:.3f} | "
+                            f"top_share={cand.timeline_top_share:.3f} | pos_bins={cand.timeline_pos_bins} | "
+                            f"neg_bins={cand.timeline_neg_bins}"
+                        )
                         print(f"        dd_abs_bins={cand.dd_abs_bins:.6f} | dd_abs_exact={dd_exact_abs:.6f}")
                         print(f"        rule: {cand.rule_text}")
 
@@ -1432,6 +2206,7 @@ def find_best_trade_rules(
 
     finally:
         progress.close()
+
 
 
 # Чтобы старый код не ломался, оставим имя как раньше
@@ -1528,6 +2303,7 @@ def example_run() -> None:
         min_winrate=0.0,
         max_drawdown_rel=None,
         max_selected_fraction_per_col=0.85,
+        max_candidates_guard_3d=0,
 
         # Выводить топ-N
         top_k=3,

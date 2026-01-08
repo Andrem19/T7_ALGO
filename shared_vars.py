@@ -91,3 +91,6 @@ fear_greed_stock = None
 fg_stock = None
 vector = None
 regimes = {}
+
+
+duration = 18

@@ -25,10 +25,10 @@ except Exception:
 
 
 # ===================== НАСТРОЙКИ =====================
-INPUT_PATH = Path("vector.csv")
-OUTPUT_PATH = Path("vector_6.csv")
+INPUT_PATH = Path("short_vector.csv")
+OUTPUT_PATH = Path("short_vector_3.csv")
 
-TARGET_HOURS = (6,)  # можно (6,) или (6, 12, 18) и т.д.
+TARGET_HOURS = (6,9,12,15,18,21,0,3)  # можно (6,) или (6, 12, 18) и т.д.
 TZ_NAME = "UTC"  # например: "Europe/London"
 
 # Имя колонки с timestamp в миллисекундах. Скрипт сам найдёт первую из этих, которая есть в файле.
