@@ -151,8 +151,21 @@ def get_signal(i, start):
 
 
     short =  sv.dow in [3] and sum([sv.cl_1d in [2], sv.cl_15m in [3], sv.cl_1h in [1], sv.hour in [15]])>=2
+    # if not short:
+    #     short = sv.dow in [3] and (sv.cl_1d==2 or (sv.cl_15m==3 and sv.cl_1h==1))
     
-    long = sv.dow in [0,1,2,3,6] and sum([vec['iv_est'] in [3,4], vec['rsi'] in [1], sv.hour == 6, sv.cl_1h in [2]])>=3
+    long = sv.dow in [0,1,2,3,6] and sum([vec['iv_est'] in [3,4], vec['rsi'] in [1], sv.hour in [6], sv.cl_1h in [2]])>=3
+    #long = sv.dow in [0,1,2,3,6] and sum([vec['iv_est'] in [3,4], vec['rsi'] in [1], (sv.hour in [3,4,5,6] and vec['atr'] in [3,4]), sv.cl_1h in [2]])>=3
+
+    
+
+    # long = (sv.dow in [0,1,2,3,6]) and (sv.hour in [3,4,5]) and (
+    # sum([
+    #     vec["iv_est"] in [3,4],
+    #     vec["rsi"] in [1],
+    #     sv.cl_1h in [2],
+    # ]) >= 2
+# )
 
     
     if short and not long:
@@ -166,3 +179,40 @@ def get_signal(i, start):
     return 0
 
  
+ 
+def long_signal(vec: dict, sv) -> bool:
+    """
+    vec: dict с полями из vector.csv (iv_est, rsi, atr, squize_index, ...)
+    sv: объект/namespace с полями dow, hour, cl_1h
+
+    Возвращает True/False для лонг-сигнала.
+    """
+
+    dow_ok = sv.dow in [0, 1, 2, 3, 6]
+
+    iv_ok = vec["iv_est"] in [3, 4]
+    rsi_ok = vec["rsi"] in [1]
+    cl_ok = sv.cl_1h in [2]
+
+    # CORE — как “движок” стратегии: он у тебя самый переносимый
+    core = dow_ok and iv_ok and rsi_ok and cl_ok
+
+    # RELAX для расширенных часов — только при высокой волатильности,
+    # иначе в 2025 получаются массовые таймауты и средний профит обнуляется
+    atr_ok = vec["atr"] in [4]
+
+    # опционально: ещё более консервативно (лучше защищает 2025)
+    # если не хочешь — просто поставь sq_ok = True
+    sq_ok = vec.get("squize_index", None) in [0, 3]
+
+    # “ровно одно из iv_ok / rsi_ok”, при этом cl_ok обязателен
+    relax = (
+        dow_ok
+        and (sv.hour in [4, 5, 6])
+        and atr_ok
+        and cl_ok
+        and sq_ok
+        and ((iv_ok and (not rsi_ok)) or (rsi_ok and (not iv_ok)))
+    )
+
+    return core or relax

@@ -772,12 +772,13 @@ def example_run() -> None:
 
     rules_1 = {
         # 'iv_est': [3,4],
-        'rsi': [1],
-        'd': [0,1,2,5,6,7],
+        # 'rsi': [1],
+        # 'd': [0,1,2,5,6,7],
         # 'd': [4],
-        'cl_1h': [2],
         # 'cl_1h': [2],
-        'h': [6]
+        # 'cl_1h': [2],
+        # 'h': [6]
+        # 'cl_1d': [0,1,2,4]
     }
 
     rules_2 = {
@@ -795,8 +796,8 @@ def example_run() -> None:
     evaluate_rules_portability_timeline(
         csv_path="vector.csv",
         data_1d=sv.data_1d,
-        rules=rules_1,
-        profit_col="profit_1",
+        rules=rules_2,
+        profit_col="profit_2",
         bins=24,
         bin_mode="time",
         sort_by_tm_ms=True,
