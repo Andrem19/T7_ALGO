@@ -17,9 +17,9 @@ def engine_1(h, i, gen_ind, signal):
     open_price = sv.data_5m[i][1]
     fut_qty = sv.amount/open_price
     
-    trashhold_tp =  0.05
+    trashhold_tp =  0.05 if signal == 1 else 0.06
 
-    trashhold_sl = 0.035 if signal == 1 else 0.025
+    trashhold_sl = 0.035 if signal == 1 else 0.01
 
     sl = open_price * (1+trashhold_sl) if signal == 2 else open_price * (1-trashhold_sl)
     tp = open_price * (1-trashhold_tp) if signal == 2 else open_price * (1+trashhold_tp)
@@ -97,7 +97,7 @@ def engine_1(h, i, gen_ind, signal):
             'regime_d': sv.reg_d,
             'd': sv.dow,
             'h': sv.hour,
-            # 'cl_1d': int(sv.cl_1d),
+            'cl_1d': int(sv.cl_1d),
             # 'cl_4h': int(sv.cl_4h),
             # 'cl_1h': int(sv.cl_1h),
             # 'cl_15m': int(sv.cl_15m),

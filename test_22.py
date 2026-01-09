@@ -24,18 +24,20 @@ _HEAP_SEQ = itertools.count()
 CSV_PATH = "vector.csv"
 
 # Сколько признаков в правиле: 1, 2 или 3 (3 может быть очень тяжело по времени)
-MAX_VAR = 3
+MAX_VAR = 1
+
+BASE_F = {}
 
 # Максимальная уникальность столбца, чтобы столбец попадал в перебор
-MAX_UNIQUE = 7
+MAX_UNIQUE = 24
 
 # Сколько тайм-бинов для стабильности и просадки (больше = точнее, но тяжелее)
-BINS = 12
+BINS = 24
 
 # Какие столбцы нельзя использовать как признаки
 DEFAULT_EXCLUDE_COLS = (
     "tm_ms",
-    "feer_and_greed", "fg_stock", "feer_and_greed", "cls_15m", "cls_5m", "cls_30m", "cls_1h", "super_cls",
+    "feer_and_greed", "fg_stock", "feer_and_greed", "cl_1d", "cl_4h", "cl_1h", "cl_15m", "atr", "rsi", "iv_est", "reg_d", "reg_h", "hill",
     "rsi_1", "sp500", "atr_1", "iv_est_1", "squize_index_1", "vix",
 )
 
@@ -50,7 +52,7 @@ sv.END = datetime(2025, 1, 1)
 # -----------------------------
 # Ограничения / фильтры
 # -----------------------------
-DEFAULT_MIN_ROWS = 300
+DEFAULT_MIN_ROWS = 150
 
 # Не позволять правилу “захватить почти всё”:
 # если в каком-то признаке выбрано слишком много значений — правило отбрасывается
@@ -215,6 +217,109 @@ def _dt_to_ms(dt: datetime) -> int:
         dt_utc = dt.astimezone(timezone.utc)
     return int(dt_utc.timestamp() * 1000)
 
+def _parse_simple_comparator(text: str) -> Tuple[str, str]:
+    """
+    Парсим строку вида:
+      '>0.33', '>= 10', '<=5', '!= 1', '==foo'
+    Возвращаем (op, rhs).
+    Если оператор не найден — op='' и rhs=text.
+    """
+    t = str(text).strip()
+    for op in (">=", "<=", "!=", "==", ">", "<"):
+        if t.startswith(op):
+            return op, t[len(op):].strip()
+    return "", t
+
+
+def _apply_base_filter(df: pd.DataFrame, base_filter: Optional[Dict[str, Any]]) -> Tuple[pd.DataFrame, str]:
+    """
+    Применяет фиксированное базовое условие к df и возвращает:
+      (df_filtered, base_text)
+
+    base_filter формат:
+      {"d": [3]}                    -> d in (3,)
+      {"hill": [0,2]}               -> hill in (0,2)
+      {"iv_est": ">0.33"}           -> iv_est > 0.33
+      {"rsi": "<=70"}               -> rsi <= 70
+
+    Для списков/кортежей/множеств используем isin.
+    Для строк с операторами: > >= < <= == !=
+    """
+    if not base_filter:
+        return df, ""
+
+    mask = np.ones(len(df), dtype=np.bool_)
+    parts: List[str] = []
+
+    for col, cond in base_filter.items():
+        if col not in df.columns:
+            raise ValueError(f"BASE_F column '{col}' not found in CSV.")
+
+        s = df[col]
+
+        # Строка-компаратор: '>0.33', '<=70', '!=1', ...
+        if isinstance(cond, str):
+            op, rhs = _parse_simple_comparator(cond)
+
+            if op in (">", ">=", "<", "<="):
+                x = pd.to_numeric(s, errors="coerce")
+                rhs_f = float(rhs)
+
+                if op == ">":
+                    m = (x > rhs_f)
+                elif op == ">=":
+                    m = (x >= rhs_f)
+                elif op == "<":
+                    m = (x < rhs_f)
+                else:  # "<="
+                    m = (x <= rhs_f)
+
+                mask &= m.to_numpy(dtype=np.bool_, copy=False)
+                parts.append(f"{col} {op} {rhs_f}")
+
+            elif op in ("==", "!="):
+                # Сначала пробуем как число, если не выходит — как строку
+                rhs_val: Any
+                try:
+                    rhs_val = float(rhs)
+                    # если колонка целочисленная — можно привести
+                    # но это не обязательно, сравнение float/int в pandas нормально работает
+                except Exception:
+                    rhs_val = rhs
+
+                if op == "==":
+                    m = (s == rhs_val)
+                else:
+                    m = (s != rhs_val)
+
+                mask &= m.to_numpy(dtype=np.bool_, copy=False)
+                parts.append(f"{col} {op} {rhs_val}")
+
+            else:
+                # Если строка без оператора — трактуем как равенство
+                m = (s.astype(str) == str(cond))
+                mask &= m.to_numpy(dtype=np.bool_, copy=False)
+                parts.append(f"{col} == {cond}")
+
+            continue
+
+        # Список значений: {"d":[3,4]} -> isin
+        if isinstance(cond, (list, tuple, set, np.ndarray, pd.Series)):
+            allowed = list(cond)
+            m = s.isin(allowed)
+            mask &= m.to_numpy(dtype=np.bool_, copy=False)
+            parts.append(f"{col} in {tuple(allowed)}")
+            continue
+
+        # Скаляр: {"d":3}
+        m = (s == cond)
+        mask &= m.to_numpy(dtype=np.bool_, copy=False)
+        parts.append(f"{col} == {cond}")
+
+    base_txt = " and ".join(parts)
+    df2 = df[mask].reset_index(drop=True)
+
+    return df2, base_txt
 
 def _safe_factorize_series(s: pd.Series) -> Tuple[np.ndarray, List[Any]]:
     """
@@ -1749,18 +1854,25 @@ def find_best_trade_rules(
     min_rows: int = DEFAULT_MIN_ROWS,
     show_progress: bool = True,
     print_results: bool = True,
+
     objective: Optional[Dict[str, float]] = None,
     stability_weights: Optional[Dict[str, float]] = None,
     timeline: Optional[Dict[str, Any]] = None,
+
     require_positive_mean: bool = DEFAULT_REQUIRE_POSITIVE_MEAN,
     min_mean: float = DEFAULT_MIN_MEAN,
     min_winrate: float = DEFAULT_MIN_WINRATE,
     max_drawdown_rel: Optional[float] = DEFAULT_MAX_DD_REL,
     max_selected_fraction_per_col: float = DEFAULT_MAX_SELECTED_FRACTION_PER_COL,
+
     top_k: int = DEFAULT_TOP_K,
     recalc_exact_dd_for_top: bool = DEFAULT_RECALC_EXACT_DD_FOR_TOP,
+
     # Guard 3D: можно выключить (None или <=0)
     max_candidates_guard_3d: Optional[int] = 3_000_000,
+
+    # НОВОЕ: базовый фильтр (фиксированная “база”)
+    base_filter: Optional[Dict[str, Any]] = None,
 ) -> Dict[Tuple[str, ...], Dict[str, List[RuleCandidate]]]:
 
     if not isinstance(max_var, int) or max_var < 1:
@@ -1835,10 +1947,34 @@ def find_best_trade_rules(
     if "tm_ms" in df.columns:
         df = df.sort_values("tm_ms", kind="mergesort").reset_index(drop=True)
 
-    # 5) признаки
-    feature_cols = [c for c in df.columns if c not in profit_cols and c not in exclude_cols]
+    # 4.5) НОВОЕ: применяем базовый фильтр (фиксированная база)
+    # Если base_filter не передан — берём BASE_F (глобальную настройку)
+    if base_filter is None:
+        base_filter = globals().get("BASE_F", None)
+
+    df_before_base = len(df)
+    df, base_txt = _apply_base_filter(df, base_filter)
+    df_after_base = len(df)
+
+    if df_after_base == 0:
+        raise ValueError(f"BASE_F removed all rows. base_filter={base_filter}")
+
+    if print_results and base_txt:
+        print()
+        print("=" * 120)
+        print("BASE FILTER (fixed condition applied before search)")
+        print("=" * 120)
+        kept_frac = (df_after_base / df_before_base) if df_before_base > 0 else 0.0
+        print(f"Base: {base_txt}")
+        print(f"Rows before base: {df_before_base:,}")
+        print(f"Rows after base : {df_after_base:,} ({kept_frac*100:.2f}%)")
+        print("=" * 120)
+
+    # 5) признаки (базовые колонки НЕ участвуют в переборе)
+    base_cols = set(base_filter.keys()) if base_filter else set()
+    feature_cols = [c for c in df.columns if c not in profit_cols and c not in exclude_cols and c not in base_cols]
     if not feature_cols:
-        raise ValueError("No feature columns found after exclusions.")
+        raise ValueError("No feature columns found after exclusions/base filter columns.")
 
     # 6) фильтр по уникальности и константам
     eligible_cols: List[str] = []
@@ -1862,25 +1998,25 @@ def find_best_trade_rules(
     if len(eligible_cols) < max_var:
         raise ValueError(f"Not enough eligible columns for max_var={max_var}. Eligible: {len(eligible_cols)}")
 
-    # 6.5) Печать: какие колонки участвуют и сколько у них уникальных значений
+    # 6.5) печать: какие колонки участвуют и сколько уникальных
     if print_results:
         print()
         print("=" * 120)
         print("ELIGIBLE FEATURE COLUMNS (will be used in search)")
         print("=" * 120)
 
-        info: List[Tuple[str, int, int]] = []
+        info = []
         for c in eligible_cols:
             nun = int(df[c].nunique(dropna=False))
             n_non_na = int(df[c].notna().sum())
             info.append((c, nun, n_non_na))
 
         info.sort(key=lambda x: (-x[1], x[0]))
+
         for c, nun, n_non_na in info:
             print(f"  {c:<35} uniques={nun:<6} non_na={n_non_na:<8}")
 
         print("=" * 120)
-
         if skipped_cols:
             print("SKIPPED (too many uniques):")
             for c, nun in sorted(skipped_cols, key=lambda x: -x[1]):
@@ -1896,19 +2032,19 @@ def find_best_trade_rules(
     # 7) факторизация признаков
     fact = _factorize_columns(df, eligible_cols)
 
-    # 8) биннинг по времени / строкам (для стабильности и просадки)
+    # 8) биннинг (после BASE_F!)
     bin_id = _make_bin_id(df, bins=bins, bin_mode=bin_mode)
 
-    # 9) все наборы колонок фиксированной длины max_var
+    # 9) наборы колонок длины max_var
     col_sets = list(itertools.combinations(eligible_cols, max_var))
 
     # 10) оценка веса прогресса
     def _cand_count_for_cols(cols: Tuple[str, ...]) -> int:
-        ks_loc = [int(fact[c]["k"]) for c in cols]
-        total_loc = 1
-        for k_loc in ks_loc:
-            total_loc *= ((1 << int(k_loc)) - 1)
-        return int(total_loc)
+        ks = [int(fact[c]["k"]) for c in cols]
+        total = 1
+        for k in ks:
+            total *= ((1 << k) - 1)
+        return int(total)
 
     total_steps = 0
     for cs in col_sets:
@@ -1916,23 +2052,49 @@ def find_best_trade_rules(
 
     progress = _Progress(total=total_steps, enabled=show_progress)
 
-    # подготовка профитов
+    # профиты
     profit_arrays: Dict[str, np.ndarray] = {
         pc: pd.to_numeric(df[pc], errors="coerce").to_numpy(dtype=np.float64, copy=False)
         for pc in profit_cols
     }
 
     n_total_rows = int(len(df))
-
-    # Предрасчёт log1p (ускоряет rows_bonus)
     log1p_table, log1p_total = _build_log1p_table(n_total_rows)
 
-    # !!! ВАЖНО: results должен быть объявлен ДО try/цикла !!!
     results: Dict[Tuple[str, ...], Dict[str, List[RuleCandidate]]] = {}
 
-    # ==================================================================
-    # Перебор по наборам колонок
-    # ==================================================================
+    def _prepend_base_text_to_candidates(cands: List[RuleCandidate]) -> List[RuleCandidate]:
+        if not base_txt:
+            return cands
+        out: List[RuleCandidate] = []
+        for cand in cands:
+            rt = f"{base_txt} and {cand.rule_text}" if cand.rule_text else base_txt
+            out.append(RuleCandidate(
+                profit_col=cand.profit_col,
+                cols=cand.cols,
+                bit_masks=cand.bit_masks,
+                rule_values=cand.rule_values,
+                rule_text=rt,
+                n_rows=cand.n_rows,
+                profit_sum=cand.profit_sum,
+                profit_mean=cand.profit_mean,
+                winrate=cand.winrate,
+                stability_score=cand.stability_score,
+                timeline_bins=cand.timeline_bins,
+                timeline_coverage=cand.timeline_coverage,
+                timeline_evenness=cand.timeline_evenness,
+                timeline_top_share=cand.timeline_top_share,
+                timeline_pos_bins=cand.timeline_pos_bins,
+                timeline_neg_bins=cand.timeline_neg_bins,
+                dd_abs_bins=cand.dd_abs_bins,
+                dd_rel_bins=cand.dd_rel_bins,
+                dd_abs_exact=cand.dd_abs_exact,
+                dd_rel_exact=cand.dd_rel_exact,
+                complexity=cand.complexity,
+                score=cand.score,
+            ))
+        return out
+
     try:
         for cols in col_sets:
             ks = [int(fact[c]["k"]) for c in cols]
@@ -1940,16 +2102,13 @@ def find_best_trade_rules(
             codes_list = [fact[c]["codes"] for c in cols]
             shape = tuple(ks)
 
-            # flat index по комбинациям категорий
             flat_idx = np.ravel_multi_index(tuple(codes_list), dims=shape, mode="raise")
             size = int(np.prod(shape, dtype=np.int64))
 
-            # counts общий (не зависит от profit_col)
-            cnt_flat = _bincount_tensor(flat_idx, size=size, weights=None)  # int64
+            cnt_flat = _bincount_tensor(flat_idx, size=size, weights=None)
             cnt_tensor = cnt_flat.reshape(shape)
 
-            # counts по бинам общий
-            cnt_bin_flat = _bincount_bin_tensor(bin_id, flat_idx, n_bins=bins, size=size, weights=None)  # (bins,size)
+            cnt_bin_flat = _bincount_bin_tensor(bin_id, flat_idx, n_bins=bins, size=size, weights=None)
             cnt_bin_tensor = cnt_bin_flat.reshape((bins,) + shape)
 
             per_profit: Dict[str, List[RuleCandidate]] = {}
@@ -1957,44 +2116,31 @@ def find_best_trade_rules(
             for pc in profit_cols:
                 p = profit_arrays[pc]
 
-                # суммарная прибыль по ячейкам
-                sum_flat = _bincount_tensor(flat_idx, size=size, weights=p)  # float64
+                sum_flat = _bincount_tensor(flat_idx, size=size, weights=p)
                 sum_tensor = sum_flat.reshape(shape)
 
-                # “плюсовые сделки” по ячейкам
                 pos_mask = (p > 0.0)
                 pos_flat = np.bincount(flat_idx[pos_mask], minlength=size).astype(np.int64, copy=False)
                 pos_tensor = pos_flat.reshape(shape)
 
-                # суммарная прибыль по бинам
                 sum_bin_flat = _bincount_bin_tensor(bin_id, flat_idx, n_bins=bins, size=size, weights=p)
                 sum_bin_tensor = sum_bin_flat.reshape((bins,) + shape)
 
-                # ----------------------------------------------------------
-                # Поиск лучших кандидатов
-                # ----------------------------------------------------------
                 if max_var == 1:
                     c0 = cols[0]
                     k0 = ks[0]
                     u0 = uniques_list[0]
-
-                    sum_by_val = np.asarray(sum_tensor, dtype=np.float64).reshape(k0)
-                    cnt_by_val = np.asarray(cnt_tensor, dtype=np.int64).reshape(k0)
-                    pos_by_val = np.asarray(pos_tensor, dtype=np.int64).reshape(k0)
-
-                    sum_bin_by_val = np.asarray(sum_bin_tensor, dtype=np.float64).reshape(bins, k0)
-                    cnt_bin_by_val = np.asarray(cnt_bin_tensor, dtype=np.int64).reshape(bins, k0)
 
                     best = _search_1d(
                         col=c0,
                         uniques=u0,
                         k=k0,
                         profit_col=pc,
-                        sum_by_val=sum_by_val,
-                        cnt_by_val=cnt_by_val,
-                        pos_by_val=pos_by_val,
-                        sum_bin_by_val=sum_bin_by_val,
-                        cnt_bin_by_val=cnt_bin_by_val,
+                        sum_by_val=np.asarray(sum_tensor, dtype=np.float64).reshape(k0),
+                        cnt_by_val=np.asarray(cnt_tensor, dtype=np.int64).reshape(k0),
+                        pos_by_val=np.asarray(pos_tensor, dtype=np.int64).reshape(k0),
+                        sum_bin_by_val=np.asarray(sum_bin_tensor, dtype=np.float64).reshape(bins, k0),
+                        cnt_bin_by_val=np.asarray(cnt_bin_tensor, dtype=np.int64).reshape(bins, k0),
                         bins=bins,
                         top_frac=top_frac,
                         min_rows=int(min_rows),
@@ -2011,7 +2157,7 @@ def find_best_trade_rules(
                         log1p_table=log1p_table,
                         log1p_total=log1p_total,
                     )
-                    per_profit[pc] = best
+                    per_profit[pc] = _prepend_base_text_to_candidates(best)
 
                 elif max_var == 2:
                     c0, c1 = cols
@@ -2046,7 +2192,7 @@ def find_best_trade_rules(
                         log1p_table=log1p_table,
                         log1p_total=log1p_total,
                     )
-                    per_profit[pc] = best
+                    per_profit[pc] = _prepend_base_text_to_candidates(best)
 
                 else:
                     c0, c1, c2 = cols
@@ -2078,13 +2224,11 @@ def find_best_trade_rules(
                         log1p_table=log1p_table,
                         log1p_total=log1p_total,
                     )
-                    per_profit[pc] = best
+                    per_profit[pc] = _prepend_base_text_to_candidates(best)
 
             results[tuple(cols)] = per_profit
 
-        # --------------------------------------------------------------
-        # Пересчёт точной просадки (по реальным сделкам) для TOP-K
-        # --------------------------------------------------------------
+        # точная просадка для top-k (на уже отфильтрованном df!)
         if recalc_exact_dd_for_top:
             for cols, per_profit in results.items():
                 for pc, cands in per_profit.items():
@@ -2137,9 +2281,6 @@ def find_best_trade_rules(
                             score=cand.score,
                         )
 
-        # --------------------------------------------------------------
-        # Печать
-        # --------------------------------------------------------------
         if print_results:
             print()
             print("=" * 120)
@@ -2147,13 +2288,12 @@ def find_best_trade_rules(
             print("=" * 120)
             print(f"CSV: {csv_path}")
             print(f"Rows used: {len(df):,}")
+            if base_txt:
+                print(f"BASE_F: {base_txt}")
             print(f"max_var={max_var} | min_rows={min_rows} | max_unique={max_unique}")
             print(f"Timeline: bins={bins} | bin_mode={bin_mode} | top_frac={top_frac}")
-            print(
-                "Filters: "
-                f"require_pos_mean={require_positive_mean} | min_mean={min_mean} | min_winrate={min_winrate} | "
-                f"max_dd_rel={max_drawdown_rel} | max_selected_fraction_per_col={max_selected_fraction_per_col}"
-            )
+            print(f"Filters: require_pos_mean={require_positive_mean} | min_mean={min_mean} | min_winrate={min_winrate} | "
+                  f"max_dd_rel={max_drawdown_rel} | max_selected_fraction_per_col={max_selected_fraction_per_col}")
             print("Objective weights:", obj)
             print("Stability weights:", stab_w)
             print("=" * 120)
@@ -2165,7 +2305,7 @@ def find_best_trade_rules(
                 cands = per.get(sort_pc, [])
                 return float(cands[0].score) if cands else float("-inf")
 
-            # ЛУЧШИЕ сверху (reverse=True)
+            # ЛУЧШИЕ сверху
             sorted_sets = sorted(results.keys(), key=_best_score_for, reverse=True)
 
             for cs in sorted_sets:
@@ -2184,19 +2324,13 @@ def find_best_trade_rules(
                         dd_exact = cand.dd_rel_exact if cand.dd_rel_exact is not None else float("nan")
                         dd_exact_abs = cand.dd_abs_exact if cand.dd_abs_exact is not None else float("nan")
 
-                        print(
-                            f"    #{rank} score={cand.score:.6f} | N={cand.n_rows} | mean={cand.profit_mean:.6f} | "
-                            f"winrate={cand.winrate:.3f} | stab={cand.stability_score:.3f} | "
-                            f"dd_rel_bins={cand.dd_rel_bins:.3f} | dd_rel_exact={dd_exact:.3f}"
-                        )
+                        print(f"    #{rank} score={cand.score:.6f} | N={cand.n_rows} | mean={cand.profit_mean:.6f} | "
+                              f"winrate={cand.winrate:.3f} | stab={cand.stability_score:.3f} | "
+                              f"dd_rel_bins={cand.dd_rel_bins:.3f} | dd_rel_exact={dd_exact:.3f}")
 
                         print(f"        sum={cand.profit_sum:.6f} | complexity={cand.complexity:.3f}")
-                        print(
-                            "        timeline: "
-                            f"coverage={cand.timeline_coverage:.3f} | evenness={cand.timeline_evenness:.3f} | "
-                            f"top_share={cand.timeline_top_share:.3f} | pos_bins={cand.timeline_pos_bins} | "
-                            f"neg_bins={cand.timeline_neg_bins}"
-                        )
+                        print(f"        timeline: coverage={cand.timeline_coverage:.3f} | evenness={cand.timeline_evenness:.3f} | "
+                              f"top_share={cand.timeline_top_share:.3f} | pos_bins={cand.timeline_pos_bins} | neg_bins={cand.timeline_neg_bins}")
                         print(f"        dd_abs_bins={cand.dd_abs_bins:.6f} | dd_abs_exact={dd_exact_abs:.6f}")
                         print(f"        rule: {cand.rule_text}")
 
@@ -2206,6 +2340,7 @@ def find_best_trade_rules(
 
     finally:
         progress.close()
+
 
 
 
@@ -2298,11 +2433,11 @@ def example_run() -> None:
         },
 
         # Фильтры качества
-        require_positive_mean=True,
+        require_positive_mean=False,
         min_mean=0.0,
         min_winrate=0.0,
         max_drawdown_rel=None,
-        max_selected_fraction_per_col=0.85,
+        max_selected_fraction_per_col=0.95,
         max_candidates_guard_3d=0,
 
         # Выводить топ-N

@@ -116,6 +116,8 @@ def get_signal(i, start):
     
     sv.reg_h = vec['reg_h']#int(res_2["states"][-1]) 
     
+    
+    
     vars_1 = {
         'feer_and_greed': sv.fg,
         'fg_stock': sv.fg_stock,
@@ -145,92 +147,20 @@ def get_signal(i, start):
         'cl_15m': int(sv.cl_15m),
     }
     
-    rules_1 = {
-        'd': [0,1,2,4,6],
-        'atr': [0,3,4],
-        'iv_est_1': '>0.33',
-        'rsi_1': '>31',
-        'feer_and_greed': '>17'
-    }
-    
-    rules_2 = {
-        'd': [1,3,4],
-        'atr': [1,2],
-        'hill': [0,2],
-        'cl_4h': [1,2,3,4],
-        'rsi_1': '<76',
-    }
-    long, short, exp = calc_long_short_v4(vars_1=vars_1, rules_1=rules_1, rules_2=rules_2)
+    #long_candels = (int((sv.data_1h[i-12:i, 4] > sv.data_1h[i-12:i, 1]).sum()) - int((sv.data_1h[i-12:i, 4] < sv.data_1h[i-12:i, 1]).sum()))
 
-    if short and sv.hour == 6:
-        sv.duration = 18
+
+    short =  sv.dow in [3] and sum([sv.cl_1d in [2], sv.cl_15m in [3], sv.cl_1h in [1], sv.hour in [15]])>=2
+    
+    long = sv.dow in [0,1,2,3,5,6] and sum([vec['iv_est'] in [3,4], vec['rsi'] in [1], sv.hour == 6, sv.cl_1h in [2]])>=3
+    
+    if short and not long:
+        sv.amount = 10000
         return 2
-    if long and sv.hour == 6:
-        sv.duration = 18
+    
+    if long and not short:
+        sv.amount = 5000
         return 1
-    
-    # rules_1 = {
-    #     'd': [0,1],
-    #     'cl_4h': [3],
-    #     # 'iv_est': [3, 4],
-    #     # 'squize_index': [2]
-    # }
-
-    # rules_2 = {
-    #     'cl_1d': [1,2],
-    #     'cl_4h': [2],
-    #     # 'iv_est': [3,4],
-    #     # 'squize_index': [1,3,4]
-    # }
-    rules_1 = {
-        'squize_index': [4],
-        'cl_4h': [0],
-        'reg_h': [3]
-        # 'iv_est': [3, 4],
-        # 'squize_index': [2]
-    }
-
-    rules_2 = {
-        'cl_1d': [2],
-        'cl_4h': [1,2],
-        # 'iv_est': [3,4],
-        # 'squize_index': [1,3,4]
-    }
-    long, short, exp = calc_long_short_v4(vars_1=vars_1, rules_1=rules_1, rules_2=rules_2)
-    
-    if short and sv.dow not in [2]:
-        sv.duration = 6
-        return 2
-    if long and sv.dow not in [3]:
-        sv.duration = 6
-        return 1
-    
-    rules_1 = {
-        'hill': [1],
-        'cl_15m': [1,2],
-        'rsi': [0, 1, 2, 4]
-        # 'iv_est': [3, 4],
-        # 'squize_index': [2]
-    }
-
-    rules_2 = {
-        'hill': [2],
-        'rsi': [0,2],
-        'atr': [0,1]
-        # 'iv_est': [3,4],
-        # 'squize_index': [1,3,4]
-    }
-    
-    long, short, exp = calc_long_short_v4(vars_1=vars_1, rules_1=rules_1, rules_2=rules_2)
-
-    if short and sv.dow not in [2]:
-        sv.duration = 18
-        return 2
-    if long:# and sv.dow not in [1,4,5]:
-        sv.duration = 18
-        return 1
-    
-
 
     return 0
 

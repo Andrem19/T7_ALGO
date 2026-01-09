@@ -56,7 +56,7 @@ def run(start: int):
             # }
             # save_dict.update(quantile_classes_0_4(rsi=sv.rsi, atr=sv.atr, iv_est=sv.iv_est, squize_index=sv.squeeze_index))
             # util.append_dict_to_csv(save_dict, PATH_TRAIN_DATA)
-            i+=(result_1['duration_min']//60)+1
+            i+=max((result_1['duration_min']//60)+1, 2)
         else:
             i+=1
         

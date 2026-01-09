@@ -4,9 +4,12 @@
 from __future__ import annotations
 
 import math
+from helpers.mprint import green
 import os
 import shared_vars as sv
 from helpers.get_data import load_data_sets
+from itertools import combinations
+
 
 import re
 from dataclasses import dataclass
@@ -19,11 +22,15 @@ import pandas as pd
 # -----------------------------
 # Defaults
 # -----------------------------
-
+HOURS = list(range(24))  # 0..23
 DEFAULT_TIMELINE_BINS = 24
 DEFAULT_TOP_FRAC = 0.2
 DEFAULT_MIN_BASE_ROWS_PER_BIN = 3
 
+best = {
+    'rule': None,
+    'value': 0
+}
 
 # -----------------------------
 # Rule parsing
@@ -714,7 +721,10 @@ def evaluate_rules_portability_timeline(
         for r in parsed_rules:
             print(f"  - {r.text}")
         print("-" * 110)
-
+        for r in per_rule_results:
+            if r.mean_degradation_global > best['value']:
+                best['value'] = r.mean_degradation_global
+                best['rule'] = r.rule_text
         for r in per_rule_results:
             print(f"RULE: {r.rule_text}")
             print(f"  Global mean degradation (remove rule -> mean gets worse by): {r.mean_degradation_global:.6f}")
@@ -761,25 +771,32 @@ def example_run() -> None:
     sv.data_1d = load_data_sets(1440)
 
     rules_1 = {
-        'hill': [1],
-        'cl_15m': [1,2],
-        'rsi': [0, 1, 2, 4]
-        # 'iv_est': [3, 4],
-        # 'squize_index': [2]
+        # 'iv_est': [3,4],
+        'rsi': [1],
+        # 'd': [0,1,2,5,6,7],
+        # 'd': [4],
+        # 'cl_1h': [2],
+        'cls_5m': [8]
+        # 'h': [6]
     }
 
     rules_2 = {
-        'hill': [2],
-        'rsi': [0,2],
-        'atr': [0,1]
-        # 'iv_est': [3,4],
+        # 'd': [4],
+        # 'cl_15m': [3],
+        # 'cl_1d': [2]
+        # 'cl_4h': [2]
+        # 'h': [15]
+
         # 'squize_index': [1,3,4]
     }
+    
+
+           
     evaluate_rules_portability_timeline(
         csv_path="vector.csv",
         data_1d=sv.data_1d,
-        rules=rules_2,
-        profit_col="profit_2",
+        rules=rules_1,
+        profit_col="profit_1",
         bins=24,
         bin_mode="time",
         sort_by_tm_ms=True,
@@ -794,6 +811,8 @@ def example_run() -> None:
         shade_non_considered_bins=True,
         max_rules_to_plot=None,
     )
+
+            
 
 
 if __name__ == "__main__":

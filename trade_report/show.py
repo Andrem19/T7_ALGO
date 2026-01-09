@@ -1216,6 +1216,41 @@ def _plot_distributions(
     else:
         ax2.text(0.5, 0.5, "No data", ha="center", va="center")
 
+    # --- ДОБАВЛЕНО: сводка по сделкам profit<0 / profit>0 + средние ---
+    profit_note = None
+    if (df is not None) and (not df.empty) and ("profit" in df.columns):
+        pr = pd.to_numeric(df["profit"], errors="coerce").dropna()
+        if not pr.empty:
+            neg = pr[pr < 0]
+            pos = pr[pr > 0]
+
+            cnt_neg = int(neg.shape[0])
+            cnt_pos = int(pos.shape[0])
+
+            mean_neg = float(neg.mean()) if cnt_neg > 0 else float("nan")
+            mean_pos = float(pos.mean()) if cnt_pos > 0 else float("nan")
+
+            def _fmt(x: float) -> str:
+                return "n/a" if pd.isna(x) else f"{x:.6g}"
+
+            profit_note = (
+                f"Profit>0 trades: {cnt_pos} (avg {_fmt(mean_pos)})\n"
+                f"Profit<0 trades: {cnt_neg} (avg {_fmt(mean_neg)})"
+            )
+
+    if profit_note:
+        ax2.text(
+            0.02,
+            0.98,
+            profit_note,
+            transform=ax2.transAxes,
+            ha="left",
+            va="top",
+            fontsize=9,
+            bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.85, edgecolor="0.7"),
+        )
+    # --- /ДОБАВЛЕНО ---
+
     # 3) и 4) Сигналы:
     # Если df_sig содержит колонку dow, то рисуем по дням недели
     # и ДЕЛАЕМ по ДВА столбика на каждый день: signal=1 и signal=2.
@@ -1311,6 +1346,7 @@ def _plot_distributions(
 
     plt.tight_layout()
     _maybe_save_or_show(fig, "stats_overview.png", show, save, save_dir, dpi)
+
 
 
 
