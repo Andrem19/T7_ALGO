@@ -152,7 +152,8 @@ def get_signal(i, start):
 
     short =  sv.dow in [3] and sum([sv.cl_1d in [2], sv.cl_15m in [3], sv.cl_1h in [1], sv.hour in [15]])>=2
     
-    long = sv.dow in [0,1,2,3,5,6] and sum([vec['iv_est'] in [3,4], vec['rsi'] in [1], sv.hour == 6, sv.cl_1h in [2]])>=3
+    long = sv.dow in [0,1,2,3,6] and sum([vec['iv_est'] in [3,4], vec['rsi'] in [1], sv.hour == 6, sv.cl_1h in [2]])>=3
+
     
     if short and not long:
         sv.amount = 10000
