@@ -37,7 +37,7 @@ BINS = 24
 # Какие столбцы нельзя использовать как признаки
 DEFAULT_EXCLUDE_COLS = (
     "tm_ms",
-    "feer_and_greed", "fg_stock", "feer_and_greed", "cl_1d", "cl_4h", "cl_1h", "cl_15m", "atr", "rsi", "iv_est", "reg_d", "reg_h", "hill",
+    "feer_and_greed", "fg_stock", "feer_and_greed",
     "rsi_1", "sp500", "atr_1", "iv_est_1", "squize_index_1", "vix",
 )
 
