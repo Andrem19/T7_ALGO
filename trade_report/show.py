@@ -1101,14 +1101,15 @@ def _plot_equity(
             dur_loss = float(np.nanmean(dur[m_loss]))
 
     # --- figure layout ---
+    # добавляем 3-й ряд снизу: отдельная шкала (месяцы + годы)
     fig, axes = plt.subplots(
-        nrows=2,
+        nrows=3,
         ncols=1,
         figsize=(12, 7),
         sharex=True,
-        gridspec_kw={"height_ratios": [2.25, 1.0]},
+        gridspec_kw={"height_ratios": [2.25, 1.0, 0.55], "hspace": 0.06},
     )
-    ax_top, ax_bottom = axes
+    ax_top, ax_profit, ax_scale = axes
 
     # --- верх: equity ---
     ax_top.plot(x_num, eq, linewidth=1.8, label="Equity")
@@ -1163,20 +1164,195 @@ def _plot_equity(
         bbox=dict(boxstyle="round,pad=0.35", facecolor="white", alpha=0.75, edgecolor="0.7"),
     )
 
-    # --- низ: profit bars ---
-    # чтобы столбики читались, красим по знаку
+    # --- середина: profit bars ---
     bar_colors = np.where(profit >= 0, "limegreen", "crimson")
-    ax_bottom.bar(x_num, profit, width=bar_w, align="center", color=bar_colors, linewidth=0.0)
-    ax_bottom.axhline(0.0, linewidth=1.0)
-    ax_bottom.set_ylabel("Profit")
-    ax_bottom.grid(True, axis="y", alpha=0.35)
+    ax_profit.bar(x_num, profit, width=bar_w, align="center", color=bar_colors, linewidth=0.0)
+    ax_profit.axhline(0.0, linewidth=1.0)
+    ax_profit.set_ylabel("Profit")
+    ax_profit.grid(True, axis="y", alpha=0.35)
 
-    # формат оси X
-    ax_bottom.xaxis_date()
-    ax_bottom.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
+    # --- низ: отдельная шкала (месяцы + годы) ---
+    # здесь только "черточки" и подписи сальдо + количество сделок, без наложения на столбики profit
+    try:
+        x_min_dt = pd.Timestamp(x_dt.min())
+        x_max_dt = pd.Timestamp(x_dt.max())
+
+        month_period = x_dt.dt.to_period("M")
+        year_period = x_dt.dt.to_period("Y")
+
+        uniq_months = pd.unique(month_period)
+        uniq_years = pd.unique(year_period)
+
+        ax_scale.set_ylim(0.0, 1.0)
+        ax_scale.set_yticks([])
+        ax_scale.grid(False)
+
+        # делаем шкалу визуально "лентой"
+        for s in ["left", "right", "top"]:
+            ax_scale.spines[s].set_visible(False)
+
+        # черточки по месяцам (короткие), и более заметные по годам
+        for p in uniq_months:
+            m_start = p.to_timestamp(how="start")
+            if m_start > x_min_dt and m_start <= x_max_dt:
+                xline = mdates.date2num(m_start.to_pydatetime())
+                ax_scale.vlines(xline, 0.42, 1.00, linewidth=0.8, alpha=0.35)
+
+        for yp in uniq_years:
+            y_start = yp.to_timestamp(how="start")
+            if y_start > x_min_dt and y_start <= x_max_dt:
+                xline = mdates.date2num(y_start.to_pydatetime())
+                ax_scale.vlines(xline, 0.00, 1.00, linewidth=1.2, alpha=0.50)
+
+        # подписи: два ряда (месяцы выше, годы ниже), вертикально, ещё мельче
+        # для месяцев делаем два "уровня" и рядом (сдвигом) ставим число сделок
+        y_axes_month_a = 0.48
+        y_axes_month_b = 0.68
+        y_axes_year = 0.06
+
+        month_fs = 4
+        year_fs = 4
+        offset_pts_month = 7   # сдвиг "рядом" в пикселях/пойнтах
+        offset_pts_year = 9
+
+        # месяцы
+        for i, p in enumerate(uniq_months):
+            mask = (month_period == p).to_numpy()
+            if not np.any(mask):
+                continue
+
+            month_sum = float(np.nansum(profit[mask]))
+            month_cnt = int(np.count_nonzero(mask))
+
+            m_start = p.to_timestamp(how="start")
+            m_end = (p + 1).to_timestamp(how="start")
+
+            seg_start = m_start if m_start > x_min_dt else x_min_dt
+            seg_end = m_end if m_end < x_max_dt else x_max_dt
+            if seg_end <= seg_start:
+                continue
+
+            mid_dt = seg_start + (seg_end - seg_start) / 2
+            mid_x = mdates.date2num(mid_dt.to_pydatetime())
+
+            txt_sum = _fmt_money(month_sum)
+            if month_sum >= 0 and not str(txt_sum).lstrip().startswith("+"):
+                txt_sum = f"+{txt_sum}"
+
+            if month_sum > 0:
+                sum_color = "limegreen"
+            elif month_sum < 0:
+                sum_color = "crimson"
+            else:
+                sum_color = "0.25"
+
+            y_row = y_axes_month_a if (i % 2 == 0) else y_axes_month_b
+
+            # сальдо месяца
+            ax_scale.annotate(
+                txt_sum,
+                xy=(mid_x, y_row),
+                xycoords=ax_scale.get_xaxis_transform(),
+                xytext=(0, 0),
+                textcoords="offset points",
+                rotation=90,
+                ha="center",
+                va="bottom",
+                fontsize=month_fs,
+                fontweight="semibold",
+                color=sum_color,
+                clip_on=True,
+            )
+
+            # количество сделок рядом (коротко: "t123")
+            ax_scale.annotate(
+                f"t{month_cnt}",
+                xy=(mid_x, y_row),
+                xycoords=ax_scale.get_xaxis_transform(),
+                xytext=(offset_pts_month, 0),
+                textcoords="offset points",
+                rotation=90,
+                ha="center",
+                va="bottom",
+                fontsize=month_fs,
+                fontweight="semibold",
+                color="0.40",
+                clip_on=True,
+            )
+
+        # годы
+        for yp in uniq_years:
+            mask = (year_period == yp).to_numpy()
+            if not np.any(mask):
+                continue
+
+            year_sum = float(np.nansum(profit[mask]))
+            year_cnt = int(np.count_nonzero(mask))
+
+            y_start = yp.to_timestamp(how="start")
+            y_end = (yp + 1).to_timestamp(how="start")
+
+            seg_start = y_start if y_start > x_min_dt else x_min_dt
+            seg_end = y_end if y_end < x_max_dt else x_max_dt
+            if seg_end <= seg_start:
+                continue
+
+            mid_dt = seg_start + (seg_end - seg_start) / 2
+            mid_x = mdates.date2num(mid_dt.to_pydatetime())
+
+            txt_sum = _fmt_money(year_sum)
+            if year_sum >= 0 and not str(txt_sum).lstrip().startswith("+"):
+                txt_sum = f"+{txt_sum}"
+
+            if year_sum > 0:
+                sum_color = "limegreen"
+            elif year_sum < 0:
+                sum_color = "crimson"
+            else:
+                sum_color = "0.20"
+
+            # сальдо года
+            ax_scale.annotate(
+                txt_sum,
+                xy=(mid_x, y_axes_year),
+                xycoords=ax_scale.get_xaxis_transform(),
+                xytext=(0, 0),
+                textcoords="offset points",
+                rotation=90,
+                ha="center",
+                va="bottom",
+                fontsize=year_fs,
+                fontweight="semibold",
+                color=sum_color,
+                clip_on=True,
+            )
+
+            # количество сделок рядом
+            ax_scale.annotate(
+                f"t{year_cnt}",
+                xy=(mid_x, y_axes_year),
+                xycoords=ax_scale.get_xaxis_transform(),
+                xytext=(offset_pts_year, 0),
+                textcoords="offset points",
+                rotation=90,
+                ha="center",
+                va="bottom",
+                fontsize=year_fs,
+                fontweight="semibold",
+                color="0.38",
+                clip_on=True,
+            )
+    except Exception:
+        pass
+
+    # формат оси X (теперь на нижней шкале)
+    ax_scale.xaxis_date()
+    ax_scale.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
     fig.autofmt_xdate(rotation=20)
 
     _maybe_save_or_show(fig, "equity.png", show, save, save_dir, dpi)
+
+
 
 def _plot_distributions(
     df: pd.DataFrame,

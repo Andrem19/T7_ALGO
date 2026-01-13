@@ -168,9 +168,9 @@ def get_signal(i, start):
 # )
 
     
-    # if short and not long:
-    #     sv.amount = 10000
-    #     return 2
+    if short and not long:
+        sv.amount = 10000
+        return 2
     
     if long and not short:
         sv.amount = 5000
