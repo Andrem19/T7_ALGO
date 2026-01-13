@@ -167,7 +167,8 @@ def get_signal(i, start):
     # ]) >= 2
 # )
 
-    
+
+
     if short and not long:
         sv.amount = 10000
         return 2
